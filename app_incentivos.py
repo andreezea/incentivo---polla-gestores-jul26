@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import os
 import pandas as pd
 import streamlit as st
 import plotly.express as px
@@ -294,8 +295,8 @@ def datos_demo():
 # ============================================================================
 # CARGA DE DATOS
 # ============================================================================
-st.sidebar.title("⚙️ Configuración")
-archivo = st.sidebar.file_uploader("Sube tu Excel (.xlsx)", type=["xlsx"])
+ADMIN_PASSWORD = "admin2025"      # ← cambia esta contraseña
+DATA_PATH      = "datos_incentivos.xlsx"   # archivo guardado en el servidor
 
 def normalizar_columnas(df):
     """Quita asteriscos y espacios extra de los nombres de columna."""
@@ -310,21 +311,58 @@ def leer_hoja(xls, sheet_name):
     También normaliza nombres de columna (quita asteriscos).
     """
     df = pd.read_excel(xls, sheet_name=sheet_name, header=0)
-    # Detectar si los encabezados reales están más abajo
     primera_col = str(df.columns[0]).upper()
     if "GESTOR" not in primera_col and primera_col not in ("GESTOR", "NAN"):
-        # Los encabezados están en fila 3 (índice 2)
-        # La fila siguiente (índice 0 del df resultante) es el tooltip → se elimina
         df = pd.read_excel(xls, sheet_name=sheet_name, header=2).iloc[1:].reset_index(drop=True)
     return normalizar_columnas(df)
 
-if archivo:
-    xls       = pd.ExcelFile(archivo)
-    df_raw    = leer_hoja(xls, "Mensual")
-    df_diario = leer_hoja(xls, "Diario") if "Diario" in xls.sheet_names else pd.DataFrame()
+def cargar_excel(fuente):
+    """Carga Mensual y Diario desde un archivo o buffer."""
+    xls       = pd.ExcelFile(fuente)
+    df_m      = leer_hoja(xls, "Mensual")
+    df_d      = leer_hoja(xls, "Diario") if "Diario" in xls.sheet_names else pd.DataFrame()
+    return df_m, df_d
+
+# ── Sidebar ──────────────────────────────────────────────────────────────────
+st.sidebar.title("⚙️ Configuración")
+
+with st.sidebar.expander("🔐 Administrador"):
+    pwd_input = st.text_input("Contraseña", type="password", key="admin_pwd")
+    es_admin  = pwd_input == ADMIN_PASSWORD
+    if pwd_input and not es_admin:
+        st.error("Contraseña incorrecta")
+    if es_admin:
+        st.success("✅ Modo admin activo")
+        archivo_subido = st.file_uploader("📤 Cargar datos (.xlsx)", type=["xlsx"])
+
+        if archivo_subido:
+            # Guardar en disco para que todos los usuarios vean los datos actualizados
+            bytes_data = archivo_subido.read()
+            with open(DATA_PATH, "wb") as f:
+                f.write(bytes_data)
+            st.success("✅ Datos guardados — todos los usuarios verán la actualización")
+    else:
+        archivo_subido = None
+
+# ── Prioridad de carga: recién subido > guardado en disco > demo ──────────────
+if 'es_admin' not in dir() or not es_admin:
+    archivo_subido = None
+
+if archivo_subido:
+    import io
+    archivo_subido.seek(0)
+    df_raw, df_diario = cargar_excel(io.BytesIO(archivo_subido.read()))
+elif os.path.exists(DATA_PATH):
+    df_raw, df_diario = cargar_excel(DATA_PATH)
+    if es_admin:
+        import time
+        mod_time = os.path.getmtime(DATA_PATH)
+        fecha_mod = date.fromtimestamp(mod_time).strftime("%d/%m/%Y %H:%M")
+        st.sidebar.caption(f"📂 Datos activos · cargados el {fecha_mod}")
 else:
     df_raw, df_diario = datos_demo()
-    st.sidebar.info("Usando datos de demo. Sube tu Excel con hojas **Mensual** y **Diario**.")
+    if es_admin:
+        st.sidebar.info("No hay datos guardados. Sube tu Excel para activarlos.")
 
 if not df_diario.empty:
     try:
