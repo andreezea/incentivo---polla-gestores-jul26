@@ -297,16 +297,46 @@ def datos_demo():
 st.sidebar.title("⚙️ Configuración")
 archivo = st.sidebar.file_uploader("Sube tu Excel (.xlsx)", type=["xlsx"])
 
+def normalizar_columnas(df):
+    """Quita asteriscos y espacios extra de los nombres de columna."""
+    df.columns = [str(c).replace("*", "").strip() for c in df.columns]
+    return df
+
+def leer_hoja(xls, sheet_name):
+    """
+    Lee una hoja tolerando:
+      - Formato simple: encabezados en fila 1
+      - Plantilla con título decorativo: encabezados en fila 3, tooltips en fila 4
+    También normaliza nombres de columna (quita asteriscos).
+    """
+    df = pd.read_excel(xls, sheet_name=sheet_name, header=0)
+    # Detectar si los encabezados reales están más abajo
+    primera_col = str(df.columns[0]).upper()
+    if "GESTOR" not in primera_col and primera_col not in ("GESTOR", "NAN"):
+        # Los encabezados están en fila 3 (índice 2)
+        # La fila siguiente (índice 0 del df resultante) es el tooltip → se elimina
+        df = pd.read_excel(xls, sheet_name=sheet_name, header=2).iloc[1:].reset_index(drop=True)
+    return normalizar_columnas(df)
+
 if archivo:
     xls       = pd.ExcelFile(archivo)
-    df_raw    = pd.read_excel(xls, sheet_name="Mensual")
-    df_diario = pd.read_excel(xls, sheet_name="Diario") if "Diario" in xls.sheet_names else pd.DataFrame()
+    df_raw    = leer_hoja(xls, "Mensual")
+    df_diario = leer_hoja(xls, "Diario") if "Diario" in xls.sheet_names else pd.DataFrame()
 else:
     df_raw, df_diario = datos_demo()
     st.sidebar.info("Usando datos de demo. Sube tu Excel con hojas **Mensual** y **Diario**.")
 
 if not df_diario.empty:
-    df_diario["Fecha"] = pd.to_datetime(df_diario["Fecha"])
+    try:
+        df_diario["Fecha"] = pd.to_datetime(df_diario["Fecha"])
+    except Exception:
+        st.sidebar.error(
+            "⚠️ **Hoja Diario — error en columna Fecha.**\n\n"
+            "El formato debe ser `YYYY-MM-DD` (ej: `2024-06-15`). "
+            "Revisa que la columna Fecha contenga fechas reales, "
+            "no nombres de producto ni de mes."
+        )
+        df_diario = pd.DataFrame()   # se ignora la hoja Diario hasta que se corrija
 
 # ── Procesar base ────────────────────────────────────────────────────────────
 df = procesar(df_raw)
