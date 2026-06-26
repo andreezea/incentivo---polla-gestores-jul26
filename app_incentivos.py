@@ -69,14 +69,81 @@ def procesar(df):
     return df
 
 # ----------------------------------------------------------------------------
+# PIVOT HELPER — genera tabla con productos como columnas agrupadas
+# ----------------------------------------------------------------------------
+def build_pivot(df_src, index_col):
+    """
+    Retorna un DataFrame con MultiIndex de columnas:
+      Producto → (Cuota | Ventas | Cumpl%)
+    y filas según index_col (Departamento o Gestor).
+    """
+    grp = (
+        df_src.groupby([index_col, "Producto"])
+        .agg(Cuota=("Cuota", "sum"), Venta=("Venta", "sum"))
+        .reset_index()
+    )
+
+    p_cuota = grp.pivot(index=index_col, columns="Producto", values="Cuota").reindex(columns=PRODUCTOS_ORDEN)
+    p_venta = grp.pivot(index=index_col, columns="Producto", values="Venta").reindex(columns=PRODUCTOS_ORDEN)
+    p_cumpl = (p_venta / p_cuota * 100).round(1)
+
+    # Construir MultiIndex
+    tuples = [(p, m) for p in PRODUCTOS_ORDEN for m in ["Cuota", "Ventas", "Cumpl%"]]
+    midx   = pd.MultiIndex.from_tuples(tuples)
+
+    result = pd.DataFrame(index=p_cuota.index, columns=midx)
+    for p in PRODUCTOS_ORDEN:
+        result[(p, "Cuota")]  = p_cuota[p].fillna(0).astype(int)
+        result[(p, "Ventas")] = p_venta[p].fillna(0).astype(int)
+        result[(p, "Cumpl%")] = p_cumpl[p].fillna(0)
+
+    result.index.name = index_col
+    return result
+
+def style_pivot(df):
+    """Colorea las celdas Cumpl% según semáforo."""
+    style = pd.DataFrame("", index=df.index, columns=df.columns)
+    for p in PRODUCTOS_ORDEN:
+        col = (p, "Cumpl%")
+        if col in df.columns:
+            for idx in df.index:
+                v = df.loc[idx, col]
+                try:
+                    v = float(v)
+                    if v >= 100:
+                        style.loc[idx, col] = "background-color:#d4edda; color:#155724; font-weight:bold"
+                    elif v >= 80:
+                        style.loc[idx, col] = "background-color:#fff3cd; color:#856404; font-weight:bold"
+                    else:
+                        style.loc[idx, col] = "background-color:#f8d7da; color:#721c24; font-weight:bold"
+                except (TypeError, ValueError):
+                    pass
+    return style
+
+def show_pivot(df_src, index_col, titulo):
+    """Muestra la tabla pivot con formato completo."""
+    pv = build_pivot(df_src, index_col)
+
+    # Formatear Cumpl% con símbolo %
+    pv_display = pv.copy()
+    for p in PRODUCTOS_ORDEN:
+        pv_display[(p, "Cumpl%")] = pv[(p, "Cumpl%")].apply(lambda x: f"{x:.1f}%")
+
+    st.markdown(f"**{titulo}**")
+    styled = pv_display.style.apply(style_pivot, axis=None)
+    st.dataframe(styled, use_container_width=True)
+
+# ----------------------------------------------------------------------------
 # DATOS DEMO
 # ----------------------------------------------------------------------------
 def datos_demo():
     random.seed(42)
-    gestores = ["Juan", "Ana", "Luis", "Maria"]
-    deptos   = {"Juan": "Lima", "Ana": "Cusco", "Luis": "Lima", "Maria": "Cusco"}
+    gestores = ["Juan", "Ana", "Luis", "Maria", "Carlos", "Sofia"]
+    deptos   = {
+        "Juan":"Amazonas","Ana":"Cajamarca","Luis":"Huánuco",
+        "Maria":"Junín","Carlos":"Loreto","Sofia":"San Martín"
+    }
 
-    # -- Hoja Mensual --
     rows = []
     for g in gestores:
         for p in PRODUCTOS_ORDEN:
@@ -93,7 +160,6 @@ def datos_demo():
             })
     df_mensual = pd.DataFrame(rows)
 
-    # -- Hoja Diario: últimos 22 días hábiles --
     hoy   = date.today()
     dias  = [(hoy - timedelta(days=i)) for i in range(21, -1, -1)]
     rows_d = []
@@ -118,16 +184,15 @@ st.sidebar.title("⚙️ Configuración")
 archivo = st.sidebar.file_uploader("Sube tu Excel (.xlsx)", type=["xlsx"])
 
 if archivo:
-    xls        = pd.ExcelFile(archivo)
-    df_raw     = pd.read_excel(xls, sheet_name="Mensual")
-    df_diario  = pd.read_excel(xls, sheet_name="Diario") if "Diario" in xls.sheet_names else pd.DataFrame()
+    xls       = pd.ExcelFile(archivo)
+    df_raw    = pd.read_excel(xls, sheet_name="Mensual")
+    df_diario = pd.read_excel(xls, sheet_name="Diario") if "Diario" in xls.sheet_names else pd.DataFrame()
 else:
     df_raw, df_diario = datos_demo()
     st.sidebar.info("Usando datos de demo. Sube tu Excel con hojas **Mensual** y **Diario**.")
 
 df = procesar(df_raw)
 
-# Normalizar fechas
 if not df_diario.empty:
     df_diario["Fecha"] = pd.to_datetime(df_diario["Fecha"])
 
@@ -144,7 +209,6 @@ df_f = df.copy()
 if depto_sel  != "Todos": df_f = df_f[df_f["Departamento"] == depto_sel]
 if gestor_sel != "Todos": df_f = df_f[df_f["Gestor"]       == gestor_sel]
 
-# Agrupado por gestor
 df_gestor = (
     df_f.groupby(["Gestor", "Departamento"])
     .agg(
@@ -161,13 +225,12 @@ df_gestor["Semaforo"] = df_gestor["Cumplimiento_%"].apply(
     lambda x: "🟢 Verde" if x >= 100 else ("🟡 Amarillo" if x >= 80 else "🔴 Rojo")
 )
 
-# Leyenda de puntos
 with st.sidebar.expander("ℹ️ Tabla de puntos"):
-    st.markdown("**Cumplimiento de cuota**")
-    st.dataframe(pd.DataFrame(BANDAS_CUMPLIMIENTO, columns=["Desde %","Hasta %","Pts"]), hide_index=True)
-    st.markdown("**Crecimiento vs mes ant.**")
-    st.dataframe(pd.DataFrame(BANDAS_CRECIMIENTO, columns=["Desde %","Hasta %","Pts"]), hide_index=True)
-    st.markdown("**Diario:** +1 pt por cada venta sobre cuota diaria")
+    st.markdown("**Cumplimiento**")
+    st.dataframe(pd.DataFrame(BANDAS_CUMPLIMIENTO, columns=["Desde%","Hasta%","Pts"]), hide_index=True)
+    st.markdown("**Crecimiento**")
+    st.dataframe(pd.DataFrame(BANDAS_CRECIMIENTO, columns=["Desde%","Hasta%","Pts"]), hide_index=True)
+    st.caption("+1 pt por cada venta sobre cuota diaria")
 
 # ============================================================================
 # TABS
@@ -189,15 +252,12 @@ with tab1:
     k4.metric("Variación vs Mes Ant.", f"{var:.1f}%", delta=f"{var:.1f}%")
 
     st.markdown("---")
-
     p1, p2, p3 = st.columns(3)
-    p1.metric("📌 Puntos Base",       int(df_gestor["Puntos_Base"].sum()))
-    p2.metric("📅 Puntos Diarios",    int(df_gestor["Puntos_Diario"].sum()))
-    p3.metric("📈 Puntos Crecimiento",int(df_gestor["Puntos_Crec"].sum()))
-
+    p1.metric("📌 Puntos Base",        int(df_gestor["Puntos_Base"].sum()))
+    p2.metric("📅 Puntos Diarios",     int(df_gestor["Puntos_Diario"].sum()))
+    p3.metric("📈 Puntos Crecimiento", int(df_gestor["Puntos_Crec"].sum()))
     st.markdown("---")
 
-    # Top 3
     st.subheader("🥇 Top Performers")
     rank = df_gestor.sort_values("Total_Puntos", ascending=False).reset_index(drop=True)
     t_cols = st.columns(3)
@@ -207,7 +267,6 @@ with tab1:
             f"Base {int(row.Puntos_Base)} · Diario {int(row.Puntos_Diario)} · Crec {int(row.Puntos_Crec)}"
         )
 
-    # Ranking
     st.subheader("🏆 Ranking General")
     rank_disp = rank.copy(); rank_disp.insert(0, "Puesto", range(1, len(rank_disp)+1))
     colA, colB = st.columns([2,1])
@@ -222,7 +281,6 @@ with tab1:
         st.dataframe(rank_disp[["Puesto","Gestor","Total_Puntos","Cumplimiento_%","Semaforo"]],
                      use_container_width=True, hide_index=True)
 
-    # Composición de puntos
     st.subheader("📊 Composición de Puntos por Gestor")
     melt = rank[["Gestor","Puntos_Base","Puntos_Diario","Puntos_Crec"]].melt(
         id_vars="Gestor", var_name="Tipo", value_name="Puntos")
@@ -233,7 +291,6 @@ with tab1:
                    color_discrete_map={"Base (Cuota)":"#4C78A8","Diario (Extra)":"#F58518","Crecimiento":"#54A24B"})
     st.plotly_chart(fig_s, use_container_width=True)
 
-    # Semáforo + tabla
     colS, colE = st.columns(2)
     with colS:
         st.subheader("🚦 Estado")
@@ -251,7 +308,7 @@ with tab1:
             use_container_width=True, hide_index=True)
 
 # ============================================================================
-# TAB 2 — DETALLE POR PRODUCTO  (productos como columnas)
+# TAB 2 — DETALLE POR PRODUCTO
 # ============================================================================
 with tab2:
     st.title("📦 Detalle por Producto")
@@ -260,85 +317,45 @@ with tab2:
         st.warning("El dataset no contiene columna 'Producto'.")
         st.stop()
 
-    g_opts      = ["Todos"] + sorted(df_f["Gestor"].unique())
-    gestor_prod = st.selectbox("👤 Filtrar por Gestor", g_opts, key="tab2_gestor")
+    # ── Tabla por Departamento ────────────────────────────────────────────────
+    st.subheader("🏢 Por Departamento")
+    show_pivot(df_f, "Departamento", "")
 
-    df_p = df_f.copy()
-    if gestor_prod != "Todos":
-        df_p = df_p[df_p["Gestor"] == gestor_prod]
+    st.markdown("---")
+
+    # ── Tabla por Gestor ──────────────────────────────────────────────────────
+    st.subheader("👤 Por Gestor")
+    show_pivot(df_f, "Gestor", "")
+
+    st.markdown("---")
+
+    # ── Gráfico y mapa de calor ───────────────────────────────────────────────
+    st.subheader("📊 Cumplimiento % por Producto")
 
     df_pa = (
-        df_p.groupby(["Gestor","Producto"])
-        .agg(Venta=("Venta","sum"), Cuota=("Cuota","sum"), Total_Puntos=("Total_Puntos","sum"))
+        df_f.groupby(["Gestor","Producto"])
+        .agg(Venta=("Venta","sum"), Cuota=("Cuota","sum"))
         .reset_index()
     )
     df_pa["Cumplimiento_%"] = (df_pa["Venta"] / df_pa["Cuota"] * 100).round(1)
 
-    # ── Tabla pivotada: productos como columnas ──────────────────────────────
-    st.subheader("📋 Tabla de Resultados por Producto")
+    vista_sel = st.radio("Agrupar por:", ["Departamento","Gestor"], horizontal=True)
+    df_chart = (
+        df_f.groupby([vista_sel, "Producto"])
+        .agg(Venta=("Venta","sum"), Cuota=("Cuota","sum"))
+        .reset_index()
+    )
+    df_chart["Cumplimiento_%"] = (df_chart["Venta"] / df_chart["Cuota"] * 100).round(1)
 
-    def tabla_pivot_gestor(gestor_nombre):
-        sub = df_pa[df_pa["Gestor"] == gestor_nombre].copy()
-        sub["Producto"] = pd.Categorical(sub["Producto"], categories=PRODUCTOS_ORDEN, ordered=True)
-        sub = sub.sort_values("Producto")
-
-        filas = {"Indicador": ["Cuota", "Ventas", "Cumpl. %"]}
-        for _, row in sub.iterrows():
-            emoji = "🟢" if row["Cumplimiento_%"] >= 100 else ("🟡" if row["Cumplimiento_%"] >= 80 else "🔴")
-            filas[f"{emoji} {row['Producto']}"] = [
-                int(row["Cuota"]),
-                int(row["Venta"]),
-                f"{row['Cumplimiento_%']}%",
-            ]
-        return pd.DataFrame(filas)
-
-    if gestor_prod == "Todos":
-        for g in sorted(df_pa["Gestor"].unique()):
-            st.markdown(f"**👤 {g}**")
-            st.dataframe(tabla_pivot_gestor(g), use_container_width=True, hide_index=True)
-            st.markdown("")
-    else:
-        st.dataframe(tabla_pivot_gestor(gestor_prod), use_container_width=True, hide_index=True)
-
-    st.markdown("---")
-
-    # ── Gráfico de cumplimiento ───────────────────────────────────────────────
-    st.subheader("📊 Cumplimiento % por Producto")
-    if gestor_prod == "Todos":
-        fig_prod = px.bar(df_pa, x="Producto", y="Cumplimiento_%", color="Gestor",
-                          barmode="group", text="Cumplimiento_%",
-                          category_orders={"Producto": PRODUCTOS_ORDEN})
-    else:
-        df_pa["SemaforoColor"] = df_pa["Cumplimiento_%"].apply(
-            lambda x: "🟢 Verde" if x >= 100 else ("🟡 Amarillo" if x >= 80 else "🔴 Rojo"))
-        fig_prod = px.bar(df_pa, x="Producto", y="Cumplimiento_%",
-                          color="SemaforoColor", text="Cumplimiento_%",
-                          title=f"Cumplimiento — {gestor_prod}",
-                          color_discrete_map={"🟢 Verde":"#54A24B","🟡 Amarillo":"#F4D03F","🔴 Rojo":"#E45756"},
-                          category_orders={"Producto": PRODUCTOS_ORDEN})
+    fig_prod = px.bar(
+        df_chart, x="Producto", y="Cumplimiento_%",
+        color=vista_sel, barmode="group", text="Cumplimiento_%",
+        category_orders={"Producto": PRODUCTOS_ORDEN}
+    )
     fig_prod.add_hline(y=100, line_dash="dash", line_color="red", annotation_text="Meta 100%")
     fig_prod.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
     st.plotly_chart(fig_prod, use_container_width=True)
 
-    # ── Radar (gestor individual) ─────────────────────────────────────────────
-    if gestor_prod != "Todos":
-        st.subheader(f"🎯 Radar de Cumplimiento — {gestor_prod}")
-        sub_r = df_pa[df_pa["Gestor"] == gestor_prod].copy()
-        sub_r["Producto"] = pd.Categorical(sub_r["Producto"], categories=PRODUCTOS_ORDEN, ordered=True)
-        sub_r = sub_r.sort_values("Producto")
-        prods  = sub_r["Producto"].astype(str).tolist()
-        vals   = sub_r["Cumplimiento_%"].tolist()
-        fig_radar = go.Figure()
-        fig_radar.add_trace(go.Scatterpolar(
-            r=vals+[vals[0]], theta=prods+[prods[0]], fill="toself",
-            name=gestor_prod, line_color="#4C78A8"))
-        fig_radar.add_trace(go.Scatterpolar(
-            r=[100]*(len(prods)+1), theta=prods+[prods[0]], mode="lines",
-            line=dict(color="red", dash="dash"), name="Meta 100%"))
-        fig_radar.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, max(vals+[120])])))
-        st.plotly_chart(fig_radar, use_container_width=True)
-
-    # ── Mapa de calor ─────────────────────────────────────────────────────────
     st.subheader("🌡️ Mapa de Calor — Cumplimiento por Gestor y Producto")
     pivot_heat = df_pa.pivot(index="Gestor", columns="Producto", values="Cumplimiento_%").fillna(0)
     cols_ok    = [p for p in PRODUCTOS_ORDEN if p in pivot_heat.columns]
@@ -353,43 +370,113 @@ with tab3:
     st.title("📅 Seguimiento Diario de Ventas")
 
     if df_diario.empty:
-        st.warning("No se encontró la hoja **Diario** en el Excel. Sube el archivo con el formato correcto.")
+        st.warning("No se encontró la hoja **Diario** en el Excel.")
         st.stop()
 
-    # Filtros del tab
-    c1, c2, c3 = st.columns(3)
-    g_diario = c1.selectbox("👤 Gestor", ["Todos"]+sorted(df_diario["Gestor"].unique()), key="d_gestor")
-    p_diario = c2.selectbox("📦 Producto", ["Todos"]+PRODUCTOS_ORDEN, key="d_prod")
+    # Filtro de producto para el tab
+    prod_sel = st.selectbox("📦 Producto", ["Todos"] + PRODUCTOS_ORDEN, key="d_prod")
 
     df_d = df_diario.copy()
-    if g_diario != "Todos": df_d = df_d[df_d["Gestor"] == g_diario]
-    if p_diario != "Todos": df_d = df_d[df_d["Producto"] == p_diario]
+    if gestor_sel != "Todos": df_d = df_d[df_d["Gestor"] == gestor_sel]
+    if depto_sel  != "Todos": df_d = df_d[df_d["Departamento"] == depto_sel]
+    if prod_sel   != "Todos": df_d = df_d[df_d["Producto"] == prod_sel]
 
-    # Agrupar por fecha
-    df_dia_agg = (
-        df_d.groupby("Fecha")
-        .agg(Venta_Dia=("Venta_Dia","sum"), CuotaDiaria=("CuotaDiaria","sum"))
-        .reset_index()
-        .sort_values("Fecha")
-    )
-    df_dia_agg["Venta_Acum"]  = df_dia_agg["Venta_Dia"].cumsum()
-    df_dia_agg["Cuota_Acum"]  = df_dia_agg["CuotaDiaria"].cumsum()
-    df_dia_agg["Cumpl_Dia_%"] = (df_dia_agg["Venta_Dia"] / df_dia_agg["CuotaDiaria"] * 100).round(1)
+    # ── KPIs del último día (totales) ────────────────────────────────────────
+    ultimo_dia = df_d["Fecha"].max()
+    df_hoy_all = df_d[df_d["Fecha"] == ultimo_dia]
+    v_hoy  = df_hoy_all["Venta_Dia"].sum()
+    c_hoy  = df_hoy_all["CuotaDiaria"].sum()
+    cp_hoy = (v_hoy / c_hoy * 100) if c_hoy else 0
+    emoji_hoy = "🟢" if cp_hoy >= 100 else ("🟡" if cp_hoy >= 80 else "🔴")
 
-    # KPIs del día (último registro)
-    hoy_datos = df_dia_agg.iloc[-1]
     k1, k2, k3, k4 = st.columns(4)
-    k1.metric("📅 Último día",         str(hoy_datos["Fecha"])[:10])
-    k2.metric("Venta del Día",         f"{hoy_datos['Venta_Dia']:.1f}")
-    k3.metric("Cuota del Día",         f"{hoy_datos['CuotaDiaria']:.1f}")
-    cumpl_hoy = hoy_datos["Cumpl_Dia_%"]
-    emoji_hoy = "🟢" if cumpl_hoy >= 100 else ("🟡" if cumpl_hoy >= 80 else "🔴")
-    k4.metric(f"{emoji_hoy} Cumpl. del Día", f"{cumpl_hoy:.1f}%")
+    k1.metric("📅 Último día",     str(ultimo_dia)[:10])
+    k2.metric("Venta Total",       f"{v_hoy:.0f}")
+    k3.metric("Cuota Total",       f"{c_hoy:.0f}")
+    k4.metric(f"{emoji_hoy} Cumpl. del Día", f"{cp_hoy:.1f}%")
 
     st.markdown("---")
 
-    # Acumulado real vs meta
-    st.subheader("📈 Acumulado: Ventas vs Meta")
+    # ── TABLA PIVOT: todos los gestores × productos (último día) ─────────────
+    st.subheader(f"📋 Estado por Gestor — {str(ultimo_dia)[:10]}")
+
+    df_hoy_base = df_diario[df_diario["Fecha"] == ultimo_dia].copy()
+    if depto_sel  != "Todos": df_hoy_base = df_hoy_base[df_hoy_base["Departamento"] == depto_sel]
+    if prod_sel   != "Todos": df_hoy_base = df_hoy_base[df_hoy_base["Producto"] == prod_sel]
+
+    grp_h = (
+        df_hoy_base.groupby(["Gestor","Producto"])
+        .agg(Cuota=("CuotaDiaria","sum"), Venta=("Venta_Dia","sum"))
+        .reset_index()
+    )
+
+    prods_presentes = [p for p in PRODUCTOS_ORDEN if p in grp_h["Producto"].unique()] if prod_sel == "Todos" else [prod_sel]
+
+    p_cuota_h = grp_h.pivot(index="Gestor", columns="Producto", values="Cuota").reindex(columns=prods_presentes)
+    p_venta_h = grp_h.pivot(index="Gestor", columns="Producto", values="Venta").reindex(columns=prods_presentes)
+    p_cumpl_h = (p_venta_h / p_cuota_h * 100).round(1)
+
+    tuples_h  = [(p, m) for p in prods_presentes for m in ["Cuota", "Ventas", "Cumpl%"]]
+    midx_h    = pd.MultiIndex.from_tuples(tuples_h)
+    pivot_h   = pd.DataFrame(index=p_cuota_h.index, columns=midx_h)
+    pivot_h.index.name = "Gestor"
+
+    for p in prods_presentes:
+        pivot_h[(p, "Cuota")]  = p_cuota_h[p].fillna(0).round(1)
+        pivot_h[(p, "Ventas")] = p_venta_h[p].fillna(0).round(1)
+        pivot_h[(p, "Cumpl%")] = p_cumpl_h[p].fillna(0)
+
+    # Columna total al final
+    pivot_h[("TOTAL", "Cuota")]  = p_cuota_h.sum(axis=1).round(1)
+    pivot_h[("TOTAL", "Ventas")] = p_venta_h.sum(axis=1).round(1)
+    pivot_h[("TOTAL", "Cumpl%")] = (p_venta_h.sum(axis=1) / p_cuota_h.sum(axis=1) * 100).round(1)
+
+    # Formatear % y aplicar color
+    pivot_h_display = pivot_h.copy()
+    for p in prods_presentes + ["TOTAL"]:
+        pivot_h_display[(p, "Cumpl%")] = pivot_h[(p, "Cumpl%")].apply(lambda x: f"{x:.1f}%")
+
+    def style_hoy(df):
+        style = pd.DataFrame("", index=df.index, columns=df.columns)
+        for p in prods_presentes + ["TOTAL"]:
+            col = (p, "Cumpl%")
+            if col in df.columns:
+                for idx in df.index:
+                    v = df.loc[idx, col]
+                    try:
+                        v = float(str(v).replace("%",""))
+                        if v >= 100:
+                            style.loc[idx, col] = "background-color:#d4edda;color:#155724;font-weight:bold"
+                        elif v >= 80:
+                            style.loc[idx, col] = "background-color:#fff3cd;color:#856404;font-weight:bold"
+                        else:
+                            style.loc[idx, col] = "background-color:#f8d7da;color:#721c24;font-weight:bold"
+                    except (TypeError, ValueError):
+                        pass
+            # Resaltar columna TOTAL
+            if p == "TOTAL":
+                for m in ["Cuota","Ventas"]:
+                    c2 = (p, m)
+                    if c2 in df.columns:
+                        for idx in df.index:
+                            style.loc[idx, c2] = "background-color:#EBF5FB;font-weight:bold"
+        return style
+
+    st.dataframe(pivot_h_display.style.apply(style_hoy, axis=None), use_container_width=True)
+
+    st.markdown("---")
+
+    # ── Acumulado mes: línea real vs meta ────────────────────────────────────
+    st.subheader("📈 Acumulado del Mes: Ventas vs Meta")
+
+    df_dia_agg = (
+        df_d.groupby("Fecha")
+        .agg(Venta_Dia=("Venta_Dia","sum"), CuotaDiaria=("CuotaDiaria","sum"))
+        .reset_index().sort_values("Fecha")
+    )
+    df_dia_agg["Venta_Acum"] = df_dia_agg["Venta_Dia"].cumsum()
+    df_dia_agg["Cuota_Acum"] = df_dia_agg["CuotaDiaria"].cumsum()
+
     fig_acum = go.Figure()
     fig_acum.add_trace(go.Scatter(
         x=df_dia_agg["Fecha"], y=df_dia_agg["Venta_Acum"],
@@ -401,7 +488,6 @@ with tab3:
         mode="lines", name="Meta Acumulada",
         line=dict(color="red", dash="dash", width=2)
     ))
-    # Área entre curvas
     fig_acum.add_trace(go.Scatter(
         x=pd.concat([df_dia_agg["Fecha"], df_dia_agg["Fecha"][::-1]]).tolist(),
         y=pd.concat([df_dia_agg["Venta_Acum"], df_dia_agg["Cuota_Acum"][::-1]]).tolist(),
@@ -411,10 +497,10 @@ with tab3:
     fig_acum.update_layout(xaxis_title="Fecha", yaxis_title="Unidades", legend=dict(orientation="h"))
     st.plotly_chart(fig_acum, use_container_width=True)
 
-    # Barras diarias con colores por semáforo
+    # ── Barras diarias ────────────────────────────────────────────────────────
     st.subheader("📊 Ventas Diarias vs Cuota")
-    df_dia_agg["Color"] = df_dia_agg["Cumpl_Dia_%"].apply(
-        lambda x: "🟢 Sobre meta" if x >= 100 else ("🟡 Cerca" if x >= 80 else "🔴 Bajo meta"))
+
+    df_dia_agg["Cumpl_Dia_%"] = (df_dia_agg["Venta_Dia"] / df_dia_agg["CuotaDiaria"] * 100).round(1)
     fig_bar = go.Figure()
     fig_bar.add_trace(go.Bar(
         x=df_dia_agg["Fecha"], y=df_dia_agg["Venta_Dia"],
@@ -429,38 +515,3 @@ with tab3:
     ))
     fig_bar.update_layout(xaxis_title="Fecha", yaxis_title="Unidades", legend=dict(orientation="h"))
     st.plotly_chart(fig_bar, use_container_width=True)
-
-    # Tabla de seguimiento por gestor (último día disponible)
-    st.subheader("📋 Estado por Gestor — Último Día")
-    ultimo_dia = df_diario["Fecha"].max()
-    df_hoy = df_diario[df_diario["Fecha"] == ultimo_dia].copy()
-    if g_diario != "Todos": df_hoy = df_hoy[df_hoy["Gestor"] == g_diario]
-    if p_diario != "Todos": df_hoy = df_hoy[df_hoy["Producto"] == p_diario]
-
-    df_hoy_agg = (
-        df_hoy.groupby(["Gestor","Producto"])
-        .agg(Venta_Dia=("Venta_Dia","sum"), CuotaDiaria=("CuotaDiaria","sum"))
-        .reset_index()
-    )
-    df_hoy_agg["Cumpl_%"] = (df_hoy_agg["Venta_Dia"] / df_hoy_agg["CuotaDiaria"] * 100).round(1)
-    df_hoy_agg["Estado"]  = df_hoy_agg["Cumpl_%"].apply(
-        lambda x: "🟢 Sobre meta" if x >= 100 else ("🟡 Cerca" if x >= 80 else "🔴 Bajo meta"))
-
-    # Pivot: productos como columnas (igual que Tab 2)
-    st.markdown(f"**Fecha: {str(ultimo_dia)[:10]}**")
-
-    for g in sorted(df_hoy_agg["Gestor"].unique()):
-        sub = df_hoy_agg[df_hoy_agg["Gestor"] == g].copy()
-        sub["Producto"] = pd.Categorical(sub["Producto"], categories=PRODUCTOS_ORDEN, ordered=True)
-        sub = sub.sort_values("Producto")
-        filas = {"Indicador": ["Cuota Día", "Venta Día", "Cumpl. %"]}
-        for _, row in sub.iterrows():
-            emoji = "🟢" if row["Cumpl_%"] >= 100 else ("🟡" if row["Cumpl_%"] >= 80 else "🔴")
-            filas[f"{emoji} {row['Producto']}"] = [
-                f"{row['CuotaDiaria']:.1f}",
-                f"{row['Venta_Dia']:.1f}",
-                f"{row['Cumpl_%']}%",
-            ]
-        st.markdown(f"**👤 {g}**")
-        st.dataframe(pd.DataFrame(filas), use_container_width=True, hide_index=True)
-        st.markdown("")
