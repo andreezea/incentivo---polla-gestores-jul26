@@ -95,7 +95,7 @@ def build_pivot(df_src, index_col):
     for p in PRODUCTOS_ORDEN:
         result[(p, "Cuota")]  = p_cuota[p].fillna(0).astype(int)
         result[(p, "Ventas")] = p_venta[p].fillna(0).astype(int)
-        result[(p, "Cumpl%")] = p_cumpl[p].fillna(0)
+        result[(p, "Cumpl%")] = p_cumpl[p].fillna(0).round(0).astype(int)
 
     result.index.name = index_col
     return result
@@ -111,11 +111,11 @@ def style_pivot(df):
                 try:
                     v = float(v)
                     if v >= 100:
-                        style.loc[idx, col] = "background-color:#d4edda; color:#155724; font-weight:bold"
+                        style.loc[idx, col] = "background-color:#d4edda;color:#155724;font-weight:bold"
                     elif v >= 80:
-                        style.loc[idx, col] = "background-color:#fff3cd; color:#856404; font-weight:bold"
+                        style.loc[idx, col] = "background-color:#fff3cd;color:#856404;font-weight:bold"
                     else:
-                        style.loc[idx, col] = "background-color:#f8d7da; color:#721c24; font-weight:bold"
+                        style.loc[idx, col] = "background-color:#f8d7da;color:#721c24;font-weight:bold"
                 except (TypeError, ValueError):
                     pass
     return style
@@ -127,7 +127,7 @@ def show_pivot(df_src, index_col, titulo):
     # Formatear Cumpl% con símbolo %
     pv_display = pv.copy()
     for p in PRODUCTOS_ORDEN:
-        pv_display[(p, "Cumpl%")] = pv[(p, "Cumpl%")].apply(lambda x: f"{x:.1f}%")
+        pv_display[(p, "Cumpl%")] = pv[(p, "Cumpl%")].apply(lambda x: f"{round(x)}%")
 
     st.markdown(f"**{titulo}**")
     styled = pv_display.style.apply(style_pivot, axis=None)
@@ -422,23 +422,18 @@ with tab3:
     pivot_h.index.name = "Gestor"
 
     for p in prods_presentes:
-        pivot_h[(p, "Cuota")]  = p_cuota_h[p].fillna(0).round(1)
-        pivot_h[(p, "Ventas")] = p_venta_h[p].fillna(0).round(1)
-        pivot_h[(p, "Cumpl%")] = p_cumpl_h[p].fillna(0)
-
-    # Columna total al final
-    pivot_h[("TOTAL", "Cuota")]  = p_cuota_h.sum(axis=1).round(1)
-    pivot_h[("TOTAL", "Ventas")] = p_venta_h.sum(axis=1).round(1)
-    pivot_h[("TOTAL", "Cumpl%")] = (p_venta_h.sum(axis=1) / p_cuota_h.sum(axis=1) * 100).round(1)
+        pivot_h[(p, "Cuota")]  = p_cuota_h[p].fillna(0).round(0).astype(int)
+        pivot_h[(p, "Ventas")] = p_venta_h[p].fillna(0).round(0).astype(int)
+        pivot_h[(p, "Cumpl%")] = p_cumpl_h[p].fillna(0).round(0).astype(int)
 
     # Formatear % y aplicar color
     pivot_h_display = pivot_h.copy()
-    for p in prods_presentes + ["TOTAL"]:
-        pivot_h_display[(p, "Cumpl%")] = pivot_h[(p, "Cumpl%")].apply(lambda x: f"{x:.1f}%")
+    for p in prods_presentes:
+        pivot_h_display[(p, "Cumpl%")] = pivot_h[(p, "Cumpl%")].apply(lambda x: f"{x}%")
 
     def style_hoy(df):
         style = pd.DataFrame("", index=df.index, columns=df.columns)
-        for p in prods_presentes + ["TOTAL"]:
+        for p in prods_presentes:
             col = (p, "Cumpl%")
             if col in df.columns:
                 for idx in df.index:
@@ -453,13 +448,6 @@ with tab3:
                             style.loc[idx, col] = "background-color:#f8d7da;color:#721c24;font-weight:bold"
                     except (TypeError, ValueError):
                         pass
-            # Resaltar columna TOTAL
-            if p == "TOTAL":
-                for m in ["Cuota","Ventas"]:
-                    c2 = (p, m)
-                    if c2 in df.columns:
-                        for idx in df.index:
-                            style.loc[idx, c2] = "background-color:#EBF5FB;font-weight:bold"
         return style
 
     st.dataframe(pivot_h_display.style.apply(style_hoy, axis=None), use_container_width=True)
