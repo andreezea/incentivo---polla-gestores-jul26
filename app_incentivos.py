@@ -1,8 +1,3 @@
-streamlit>=1.33
-pandas>=2.0
-plotly>=5.20
-openpyxl>=3.1
-
 # -*- coding: utf-8 -*-
 """
 App de Incentivos de Ventas — "La Polla del Cumplimiento"
