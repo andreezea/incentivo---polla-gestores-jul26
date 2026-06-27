@@ -10,6 +10,144 @@ import random
 st.set_page_config(page_title="Incentivo de Ventas", layout="wide", page_icon="🏆")
 
 # ============================================================================
+# ESTILOS GLOBALES — Power BI look
+# ============================================================================
+st.markdown("""
+<style>
+/* ── Fondo general ── */
+.stApp { background-color: #EEF2F7; }
+.main .block-container { padding-top: 1.2rem; padding-bottom: 1rem; }
+
+/* ── Ocultar menú y footer de Streamlit ── */
+#MainMenu, footer, header { visibility: hidden; }
+
+/* ── Sidebar oscuro estilo Power BI ── */
+[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, #1F3864 0%, #2E5FA3 100%);
+}
+[data-testid="stSidebar"] .stMarkdown,
+[data-testid="stSidebar"] label,
+[data-testid="stSidebar"] p,
+[data-testid="stSidebar"] span,
+[data-testid="stSidebar"] h1,
+[data-testid="stSidebar"] h2,
+[data-testid="stSidebar"] h3 {
+    color: #FFFFFF !important;
+}
+[data-testid="stSidebar"] .stSelectbox > div > div,
+[data-testid="stSidebar"] .stTextInput > div > div {
+    background-color: rgba(255,255,255,0.12);
+    border: 1px solid rgba(255,255,255,0.25);
+    color: white;
+    border-radius: 6px;
+}
+[data-testid="stSidebar"] .stExpander {
+    background-color: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.18);
+    border-radius: 8px;
+}
+
+/* ── Tabs estilo Power BI ── */
+.stTabs [data-baseweb="tab-list"] {
+    gap: 6px;
+    background-color: #d5dce8;
+    padding: 5px 6px;
+    border-radius: 10px;
+    margin-bottom: 12px;
+}
+.stTabs [data-baseweb="tab"] {
+    border-radius: 7px;
+    color: #3A5080;
+    font-weight: 600;
+    font-size: 14px;
+    padding: 8px 22px;
+    background-color: transparent;
+    border: none;
+}
+.stTabs [aria-selected="true"] {
+    background-color: #1F3864 !important;
+    color: white !important;
+    box-shadow: 0 2px 8px rgba(31,56,100,0.35);
+}
+
+/* ── KPI metric cards ── */
+[data-testid="metric-container"] {
+    background: white;
+    border-radius: 10px;
+    padding: 18px 20px 14px 20px;
+    box-shadow: 0 2px 10px rgba(31,56,100,0.10);
+    border-left: 5px solid #2E75B6;
+    min-height: 90px;
+}
+[data-testid="metric-label"] > div {
+    font-size: 12px !important;
+    color: #7A8DA8 !important;
+    font-weight: 600 !important;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+[data-testid="metric-value"] > div {
+    font-size: 30px !important;
+    color: #1F3864 !important;
+    font-weight: 800 !important;
+}
+[data-testid="metric-delta"] > div {
+    font-size: 13px !important;
+    font-weight: 600 !important;
+}
+
+/* ── Títulos ── */
+h1 { color: #1F3864 !important; font-weight: 800 !important; letter-spacing: -0.5px; }
+h2, h3 { color: #2E5FA3 !important; font-weight: 700 !important; }
+
+/* ── DataFrames ── */
+[data-testid="stDataFrame"] { border-radius: 10px; overflow: hidden;
+    box-shadow: 0 2px 8px rgba(31,56,100,0.08); }
+
+/* ── Subheader divider ── */
+.section-header {
+    background: linear-gradient(90deg, #1F3864, #2E75B6);
+    color: white;
+    padding: 7px 16px;
+    border-radius: 6px;
+    font-weight: 700;
+    font-size: 14px;
+    margin: 16px 0 10px 0;
+    letter-spacing: 0.3px;
+}
+
+/* ── Expander ── */
+[data-testid="stExpander"] {
+    background: white;
+    border-radius: 10px;
+    border: 1px solid #D5DCE8;
+    box-shadow: 0 1px 4px rgba(31,56,100,0.06);
+}
+</style>
+""", unsafe_allow_html=True)
+
+# Paleta de colores Power BI para gráficos
+PALETA = ["#1F3864", "#2E75B6", "#54B4AE", "#BDD7EE", "#F4C430", "#E45756", "#54A24B", "#F58518"]
+
+def subheader(texto):
+    """Encabezado de sección estilo Power BI."""
+    st.markdown(f'<div class="section-header">{texto}</div>', unsafe_allow_html=True)
+
+def kpi_card(col, label, value, delta=None, color="#2E75B6"):
+    """Metric card con borde izquierdo coloreado dinámicamente."""
+    # Inyectamos un override de color por tarjeta usando un truco de CSS
+    col.markdown(f"""
+    <div style="background:white; border-radius:10px; padding:18px 20px 14px 20px;
+                box-shadow:0 2px 10px rgba(31,56,100,0.10);
+                border-left:5px solid {color}; min-height:90px; margin-bottom:4px;">
+        <p style="font-size:11px; color:#7A8DA8; font-weight:700;
+                  text-transform:uppercase; letter-spacing:0.5px; margin:0 0 6px 0;">{label}</p>
+        <p style="font-size:30px; color:#1F3864; font-weight:800; margin:0; line-height:1.1;">{value}</p>
+        {"" if delta is None else f'<p style="font-size:12px; color:{"#27AE60" if str(delta).startswith("+") or (not str(delta).startswith("-")) else "#E45756"}; font-weight:600; margin:4px 0 0 0;">{delta}</p>'}
+    </div>
+    """, unsafe_allow_html=True)
+
+# ============================================================================
 # PARÁMETROS — SISTEMA BASE
 # ============================================================================
 PRODUCTOS_ORDEN = ["Prepago", "Porta Pre", "Postpago", "OSS"]
@@ -458,113 +596,150 @@ tab1, tab2, tab3 = st.tabs(["📊 Resumen General", "📦 Detalle por Producto",
 # TAB 1 — RESUMEN GENERAL
 # ============================================================================
 with tab1:
-    st.title("🏆 Dashboard Gerencial de Incentivos")
+    # ── Header estilo Power BI ────────────────────────────────────────────────
+    st.markdown("""
+    <div style="background:linear-gradient(135deg,#1F3864 0%,#2E75B6 100%);
+                border-radius:12px; padding:22px 30px 18px 30px; margin-bottom:20px;
+                box-shadow:0 4px 16px rgba(31,56,100,0.25);">
+        <h1 style="color:white!important; margin:0; font-size:26px; font-weight:800;
+                   letter-spacing:-0.3px;">🏆 Dashboard Gerencial de Incentivos</h1>
+        <p style="color:rgba(255,255,255,0.75); margin:4px 0 0 0; font-size:13px;">
+            Seguimiento de ventas · Ranking · Puntos por Producto
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
 
-    # ── KPIs principales ─────────────────────────────────────────────────────
-    k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Gestores",              df_gestor["Gestor"].nunique())
-    k2.metric("Cumplimiento Promedio", f"{df_gestor['Cumplimiento_%'].mean():.1f}%")
-    k3.metric("Total Puntos",          int(df_gestor["Total_Puntos"].sum()))
-    v_act = df_gestor["Venta"].sum(); v_ant = df_gestor["VentaMesAnterior"].sum()
+    # ── KPIs principales (5 tarjetas estilo Power BI) ────────────────────────
+    v_act = df_gestor["Venta"].sum()
+    v_ant = df_gestor["VentaMesAnterior"].sum()
     var   = ((v_act - v_ant) / v_ant * 100) if v_ant else 0
-    k4.metric("Variación vs Mes Ant.", f"{var:.1f}%", delta=f"{var:.1f}%")
+    cumpl_prom = df_gestor["Cumplimiento_%"].mean()
 
-    st.markdown("---")
+    k1, k2, k3, k4, k5 = st.columns(5)
+    kpi_card(k1, "Gestores",              str(df_gestor["Gestor"].nunique()),       color="#1F3864")
+    kpi_card(k2, "Cumplimiento Promedio", f"{cumpl_prom:.0f}%",
+             delta=("🟢 Sobre meta" if cumpl_prom >= 100 else "🔴 Bajo meta"),       color="#2E75B6")
+    kpi_card(k3, "Total Puntos",          f"{int(df_gestor['Total_Puntos'].sum()):,}", color="#54B4AE")
+    kpi_card(k4, "Ventas del Mes",        f"{int(v_act):,}",                         color="#2E75B6")
+    kpi_card(k5, "Variación vs Mes Ant.", f"{var:+.1f}%",
+             delta=("▲ Crecimiento" if var >= 0 else "▼ Caída"),
+             color="#27AE60" if var >= 0 else "#E45756")
 
-    # ── Desglose de puntos — sistema base ────────────────────────────────────
-    st.subheader("📌 Sistema Base")
-    b1, b2, b3 = st.columns(3)
-    b1.metric("Puntos Base (Cuota)",       int(df_gestor["Puntos_Base"].sum()))
-    b2.metric("Puntos Diarios (extra ud)", int(df_gestor["Puntos_Diario"].sum()))
-    b3.metric("Puntos Crecimiento",        int(df_gestor["Puntos_Crec"].sum()))
+    st.markdown("<div style='margin-top:20px'></div>", unsafe_allow_html=True)
 
-    # ── Desglose de puntos — nuevo motor ─────────────────────────────────────
-    st.subheader("🆕 Motor por Producto")
+    # ── Puntos sistema base + motor (2 filas de KPIs pequeños) ───────────────
+    subheader("📌 Sistema Base de Puntos")
+    b1, b2, b3, sp1 = st.columns([1,1,1,1])
+    kpi_card(b1, "Puntos Cuota",       str(int(df_gestor["Puntos_Base"].sum())),    color="#1F3864")
+    kpi_card(b2, "Puntos Diario Base", str(int(df_gestor["Puntos_Diario"].sum())),  color="#2E75B6")
+    kpi_card(b3, "Puntos Crecimiento", str(int(df_gestor["Puntos_Crec"].sum())),    color="#54B4AE")
+    sp1.markdown("")
+
+    st.markdown("<div style='margin-top:14px'></div>", unsafe_allow_html=True)
+    subheader("🆕 Motor por Producto")
     n1, n2, n3, n4, n5, n6 = st.columns(6)
-    n1.metric("Diario",   int(df_gestor["PD_Diario"].sum()))
-    n2.metric("Extra",    int(df_gestor["PD_Extra"].sum()))
-    n3.metric("Semanal",  int(df_gestor["PD_Semanal"].sum()))
-    n4.metric("Mensual",  int(df_gestor["PD_Mensual"].sum()))
-    n5.metric("Mes Ant.", int(df_gestor["PD_MesAnt"].sum()))
-    n6.metric("UR",       int(df_gestor["PD_UR"].sum()))
+    kpi_card(n1, "Diario",   str(int(df_gestor["PD_Diario"].sum())),  color="#1F3864")
+    kpi_card(n2, "Extra",    str(int(df_gestor["PD_Extra"].sum())),   color="#2E75B6")
+    kpi_card(n3, "Semanal",  str(int(df_gestor["PD_Semanal"].sum())), color="#54B4AE")
+    kpi_card(n4, "Mensual",  str(int(df_gestor["PD_Mensual"].sum())), color="#1F3864")
+    kpi_card(n5, "Mes Ant.", str(int(df_gestor["PD_MesAnt"].sum())),  color="#2E75B6")
+    kpi_card(n6, "UR",       str(int(df_gestor["PD_UR"].sum())),      color="#27AE60")
 
-    st.markdown("---")
+    st.markdown("<div style='margin-top:20px'></div>", unsafe_allow_html=True)
 
     # ── Top 3 ────────────────────────────────────────────────────────────────
-    st.subheader("🥇 Top Performers")
+    subheader("🥇 Top Performers")
     rank = df_gestor.sort_values("Total_Puntos", ascending=False).reset_index(drop=True)
-    t_cols = st.columns(3)
+    top_cols = st.columns(3)
+    medal_colors = ["#FFD700", "#C0C0C0", "#CD7F32"]
     for i, row in enumerate(rank.head(3).itertuples()):
-        t_cols[i].metric(
-            f"{'🥇🥈🥉'[i]} {row.Gestor}", int(row.Total_Puntos),
-            f"Base {int(row.Puntos_Base)} · Motor {int(row.Puntos_Producto)}"
-        )
+        kpi_card(top_cols[i],
+                 f"{'🥇🥈🥉'[i]}  {row.Gestor}",
+                 f"{int(row.Total_Puntos):,} pts",
+                 delta=f"Base {int(row.Puntos_Base)} · Motor {int(row.Puntos_Producto)}",
+                 color=medal_colors[i])
 
-    # ── Ranking ──────────────────────────────────────────────────────────────
-    st.subheader("🏆 Ranking General")
+    st.markdown("<div style='margin-top:20px'></div>", unsafe_allow_html=True)
+
+    # ── Ranking + tabla (2 columnas) ─────────────────────────────────────────
+    subheader("🏆 Ranking General")
     rank_disp = rank.copy()
     rank_disp.insert(0, "Puesto", range(1, len(rank_disp)+1))
-    colA, colB = st.columns([2,1])
+    colA, colB = st.columns([3, 2])
     with colA:
         fig_r = px.bar(
             rank.sort_values("Total_Puntos"), x="Total_Puntos", y="Gestor",
             orientation="h", text="Total_Puntos",
-            color="Total_Puntos", color_continuous_scale="Blues"
+            color_discrete_sequence=["#2E75B6"]
         )
-        fig_r.update_traces(textposition="outside")
-        fig_r.update_layout(coloraxis_showscale=False)
+        fig_r.update_traces(textposition="outside", marker_line_width=0,
+                             textfont=dict(size=11, color="#1F3864", family="Arial"))
+        fig_r.update_layout(
+            plot_bgcolor="white", paper_bgcolor="white",
+            xaxis=dict(showgrid=True, gridcolor="#EEF2F7", title=""),
+            yaxis=dict(title="", tickfont=dict(size=11)),
+            margin=dict(l=10, r=30, t=10, b=10),
+            height=max(300, len(rank) * 38)
+        )
         st.plotly_chart(fig_r, use_container_width=True)
     with colB:
         st.dataframe(
             rank_disp[["Puesto","Gestor","Total_Puntos","Puntos_Producto","Cumplimiento_%","Semaforo"]],
-            use_container_width=True, hide_index=True
+            use_container_width=True, hide_index=True, height=max(300, len(rank) * 38)
         )
 
-    # ── Stacked bar: composición total de puntos ──────────────────────────────
-    st.subheader("📊 Composición de Puntos por Gestor")
-    comp_cols = {
-        "Base (Cuota)":    "Puntos_Base",
-        "Diario Base":     "Puntos_Diario",
-        "Crecimiento":     "Puntos_Crec",
-        "Motor · Diario":  "PD_Diario",
-        "Motor · Extra":   "PD_Extra",
-        "Motor · Semanal": "PD_Semanal",
-        "Motor · Mensual": "PD_Mensual",
-        "Motor · Mes Ant": "PD_MesAnt",
-        "Motor · UR":      "PD_UR",
-    }
-    melt_rows = []
-    for label, col in comp_cols.items():
-        for _, row in rank.iterrows():
-            melt_rows.append({"Gestor": row["Gestor"], "Tipo": label, "Puntos": int(row[col])})
-    df_melt = pd.DataFrame(melt_rows)
+    # ── Composición de puntos + semáforo (2 columnas) ────────────────────────
+    st.markdown("<div style='margin-top:6px'></div>", unsafe_allow_html=True)
+    subheader("📊 Composición de Puntos · Estado de Gestores")
+    colC, colD = st.columns([3, 2])
 
-    fig_s = px.bar(
-        df_melt, x="Gestor", y="Puntos", color="Tipo", barmode="stack",
-        color_discrete_sequence=px.colors.qualitative.Safe
-    )
-    st.plotly_chart(fig_s, use_container_width=True)
-
-    # ── Detalle motor por producto (tabla expandible) ─────────────────────────
-    with st.expander("🔍 Desglose Motor por Producto — tabla completa"):
-        cols_show = ["Gestor","Producto","PD_Diario","PD_Extra","PD_Semanal",
-                     "PD_Mensual","PD_MesAnt","PD_UR","Puntos_Producto","Total_Puntos"]
-        st.dataframe(
-            df_f[cols_show].sort_values(["Gestor","Producto"]),
-            use_container_width=True, hide_index=True
+    with colC:
+        comp_cols = {
+            "Base (Cuota)":    "Puntos_Base",
+            "Diario Base":     "Puntos_Diario",
+            "Crecimiento":     "Puntos_Crec",
+            "Motor · Diario":  "PD_Diario",
+            "Motor · Extra":   "PD_Extra",
+            "Motor · Semanal": "PD_Semanal",
+            "Motor · Mensual": "PD_Mensual",
+            "Motor · Mes Ant": "PD_MesAnt",
+            "Motor · UR":      "PD_UR",
+        }
+        melt_rows = []
+        for label, col in comp_cols.items():
+            for _, row in rank.iterrows():
+                melt_rows.append({"Gestor": row["Gestor"], "Tipo": label, "Puntos": int(row[col])})
+        df_melt = pd.DataFrame(melt_rows)
+        fig_s = px.bar(df_melt, x="Gestor", y="Puntos", color="Tipo", barmode="stack",
+                       color_discrete_sequence=PALETA)
+        fig_s.update_layout(
+            plot_bgcolor="white", paper_bgcolor="white",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, font=dict(size=10)),
+            xaxis=dict(title="", tickfont=dict(size=10)),
+            yaxis=dict(title="Puntos", gridcolor="#EEF2F7"),
+            margin=dict(l=10, r=10, t=40, b=10)
         )
+        st.plotly_chart(fig_s, use_container_width=True)
 
-    # ── Semáforo ──────────────────────────────────────────────────────────────
-    colS, colE = st.columns(2)
-    with colS:
-        st.subheader("🚦 Estado")
+    with colD:
         sem = df_gestor["Semaforo"].value_counts().reset_index()
         sem.columns = ["Estado","Cantidad"]
-        fig_pie = px.pie(sem, names="Estado", values="Cantidad", color="Estado",
-                         color_discrete_map={"🟢 Verde":"#54A24B","🟡 Amarillo":"#F4D03F","🔴 Rojo":"#E45756"})
+        fig_pie = px.pie(
+            sem, names="Estado", values="Cantidad", hole=0.55,
+            color="Estado",
+            color_discrete_map={"🟢 Verde":"#27AE60","🟡 Amarillo":"#F4D03F","🔴 Rojo":"#E45756"}
+        )
+        fig_pie.update_traces(textinfo="label+percent", textfont_size=12)
+        fig_pie.update_layout(
+            showlegend=False, paper_bgcolor="white",
+            margin=dict(l=10, r=10, t=20, b=10),
+            annotations=[dict(text="Estado", x=0.5, y=0.5,
+                              font=dict(size=14, color="#1F3864"), showarrow=False)]
+        )
         st.plotly_chart(fig_pie, use_container_width=True)
-    with colE:
-        st.subheader("📋 Detalle Ejecutivo")
+
+    # ── Detalle ejecutivo expandible ──────────────────────────────────────────
+    with st.expander("📋 Detalle Ejecutivo Completo"):
         st.dataframe(
             df_gestor[[
                 "Gestor","Departamento","Venta","Cuota","Cumplimiento_%",
@@ -573,29 +748,37 @@ with tab1:
             ]].sort_values("Total_Puntos", ascending=False),
             use_container_width=True, hide_index=True
         )
+    with st.expander("🔍 Desglose Motor por Producto"):
+        cols_show = ["Gestor","Producto","PD_Diario","PD_Extra","PD_Semanal",
+                     "PD_Mensual","PD_MesAnt","PD_UR","Puntos_Producto","Total_Puntos"]
+        st.dataframe(df_f[cols_show].sort_values(["Gestor","Producto"]),
+                     use_container_width=True, hide_index=True)
 
 # ============================================================================
 # TAB 2 — DETALLE POR PRODUCTO
 # ============================================================================
 with tab2:
-    st.title("📦 Detalle por Producto")
+    st.markdown("""
+    <div style="background:linear-gradient(135deg,#1F3864 0%,#2E75B6 100%);
+                border-radius:12px; padding:18px 30px 14px 30px; margin-bottom:20px;
+                box-shadow:0 4px 16px rgba(31,56,100,0.25);">
+        <h1 style="color:white!important; margin:0; font-size:22px; font-weight:800;">
+            📦 Detalle por Producto</h1>
+    </div>""", unsafe_allow_html=True)
 
     if "Producto" not in df_f.columns:
         st.warning("El dataset no contiene columna 'Producto'.")
         st.stop()
 
-    st.subheader("🏢 Por Departamento")
+    subheader("🏢 Por Departamento")
     show_pivot(df_f, "Departamento")
 
-    st.markdown("---")
-
-    st.subheader("👤 Por Gestor")
+    st.markdown("<div style='margin-top:16px'></div>", unsafe_allow_html=True)
+    subheader("👤 Por Gestor")
     show_pivot(df_f, "Gestor")
 
-    st.markdown("---")
-
-    # ── Gráficos ──────────────────────────────────────────────────────────────
-    st.subheader("📊 Cumplimiento % por Producto")
+    st.markdown("<div style='margin-top:16px'></div>", unsafe_allow_html=True)
+    subheader("📊 Cumplimiento % por Producto")
     vista_sel = st.radio("Agrupar por:", ["Departamento","Gestor"], horizontal=True)
     df_chart  = (
         df_f.groupby([vista_sel,"Producto"])
@@ -606,13 +789,17 @@ with tab2:
     fig_prod = px.bar(
         df_chart, x="Producto", y="Cumplimiento_%", color=vista_sel,
         barmode="group", text="Cumplimiento_%",
-        category_orders={"Producto": PRODUCTOS_ORDEN}
+        category_orders={"Producto": PRODUCTOS_ORDEN},
+        color_discrete_sequence=PALETA
     )
-    fig_prod.add_hline(y=100, line_dash="dash", line_color="red", annotation_text="Meta 100%")
+    fig_prod.add_hline(y=100, line_dash="dash", line_color="#E45756", annotation_text="Meta 100%")
     fig_prod.update_traces(texttemplate="%{text:.0f}%", textposition="outside")
+    fig_prod.update_layout(plot_bgcolor="white", paper_bgcolor="white",
+                           yaxis=dict(gridcolor="#EEF2F7"),
+                           margin=dict(t=20, b=10))
     st.plotly_chart(fig_prod, use_container_width=True)
 
-    st.subheader("🌡️ Mapa de Calor — Cumplimiento")
+    subheader("🌡️ Mapa de Calor — Cumplimiento")
     df_pa = (
         df_f.groupby(["Gestor","Producto"])
         .agg(Venta=("Venta","sum"), Cuota=("Cuota","sum"))
@@ -626,7 +813,7 @@ with tab2:
     st.plotly_chart(fig_heat, use_container_width=True)
 
     # ── Puntos Producto por gestor y producto ────────────────────────────────
-    st.subheader("🆕 Puntos Motor por Gestor y Producto")
+    subheader("🆕 Puntos Motor por Gestor y Producto")
     df_motor = df_f.groupby(["Gestor","Producto"]).agg(
         PD_Diario=("PD_Diario","sum"), PD_Extra=("PD_Extra","sum"),
         PD_Semanal=("PD_Semanal","sum"), PD_Mensual=("PD_Mensual","sum"),
@@ -639,7 +826,13 @@ with tab2:
 # TAB 3 — SEGUIMIENTO DIARIO
 # ============================================================================
 with tab3:
-    st.title("📅 Seguimiento Diario de Ventas")
+    st.markdown("""
+    <div style="background:linear-gradient(135deg,#1F3864 0%,#2E75B6 100%);
+                border-radius:12px; padding:18px 30px 14px 30px; margin-bottom:20px;
+                box-shadow:0 4px 16px rgba(31,56,100,0.25);">
+        <h1 style="color:white!important; margin:0; font-size:22px; font-weight:800;">
+            📅 Seguimiento Diario de Ventas</h1>
+    </div>""", unsafe_allow_html=True)
 
     if df_diario.empty:
         st.warning("No se encontró la hoja **Diario** en el Excel.")
@@ -666,10 +859,10 @@ with tab3:
     k3.metric("Cuota Total",      f"{c_hoy:.0f}")
     k4.metric(f"{emoji_hoy} Cumpl. del Día", f"{cp_hoy:.0f}%")
 
-    st.markdown("---")
+    st.markdown("<div style='margin-top:12px'></div>", unsafe_allow_html=True)
 
     # ── Tabla pivot gestores × productos (último día) ─────────────────────────
-    st.subheader(f"📋 Estado por Gestor — {str(ultimo_dia)[:10]}")
+    subheader(f"📋 Estado por Gestor — {str(ultimo_dia)[:10]}")
 
     df_hoy_base = df_diario[df_diario["Fecha"] == ultimo_dia].copy()
     if depto_sel  != "Todos": df_hoy_base = df_hoy_base[df_hoy_base["Departamento"] == depto_sel]
@@ -721,10 +914,10 @@ with tab3:
 
     st.dataframe(pivot_h_disp.style.apply(style_hoy, axis=None), use_container_width=True)
 
-    st.markdown("---")
+    st.markdown("<div style='margin-top:16px'></div>", unsafe_allow_html=True)
 
     # ── Acumulado mes ─────────────────────────────────────────────────────────
-    st.subheader("📈 Acumulado del Mes: Ventas vs Meta")
+    subheader("📈 Acumulado del Mes: Ventas vs Meta")
     df_dia_agg = (
         df_d.groupby("Fecha")
         .agg(Venta_Dia=("Venta_Dia","sum"), CuotaDiaria=("CuotaDiaria","sum"))
@@ -737,12 +930,12 @@ with tab3:
     fig_acum.add_trace(go.Scatter(
         x=df_dia_agg["Fecha"], y=df_dia_agg["Venta_Acum"],
         mode="lines+markers", name="Ventas Acumuladas",
-        line=dict(color="#4C78A8", width=2.5), marker=dict(size=5)
+        line=dict(color="#2E75B6", width=2.5), marker=dict(size=5)
     ))
     fig_acum.add_trace(go.Scatter(
         x=df_dia_agg["Fecha"], y=df_dia_agg["Cuota_Acum"],
         mode="lines", name="Meta Acumulada",
-        line=dict(color="red", dash="dash", width=2)
+        line=dict(color="#E45756", dash="dash", width=2)
     ))
     fig_acum.add_trace(go.Scatter(
         x=pd.concat([df_dia_agg["Fecha"], df_dia_agg["Fecha"][::-1]]).tolist(),
@@ -750,11 +943,16 @@ with tab3:
         fill="toself", fillcolor="rgba(76,120,168,0.1)",
         line=dict(color="rgba(255,255,255,0)"), showlegend=False, hoverinfo="skip"
     ))
-    fig_acum.update_layout(xaxis_title="Fecha", yaxis_title="Unidades", legend=dict(orientation="h"))
+    fig_acum.update_layout(
+        plot_bgcolor="white", paper_bgcolor="white",
+        xaxis=dict(title="", gridcolor="#EEF2F7"),
+        yaxis=dict(title="Unidades", gridcolor="#EEF2F7"),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02),
+        margin=dict(t=20, b=10)
+    )
     st.plotly_chart(fig_acum, use_container_width=True)
 
-    # ── Barras diarias ────────────────────────────────────────────────────────
-    st.subheader("📊 Ventas Diarias vs Cuota")
+    subheader("📊 Ventas Diarias vs Cuota")
     df_dia_agg["Cumpl_Dia_%"] = (df_dia_agg["Venta_Dia"] / df_dia_agg["CuotaDiaria"] * 100).round(1)
     fig_bar = go.Figure()
     fig_bar.add_trace(go.Bar(
@@ -764,7 +962,13 @@ with tab3:
     ))
     fig_bar.add_trace(go.Scatter(
         x=df_dia_agg["Fecha"], y=df_dia_agg["CuotaDiaria"],
-        mode="lines", name="Cuota Día", line=dict(color="red", dash="dot", width=2)
+        mode="lines", name="Cuota Día", line=dict(color="#E45756", dash="dot", width=2)
     ))
-    fig_bar.update_layout(xaxis_title="Fecha", yaxis_title="Unidades", legend=dict(orientation="h"))
+    fig_bar.update_layout(
+        plot_bgcolor="white", paper_bgcolor="white",
+        xaxis=dict(title="", gridcolor="#EEF2F7"),
+        yaxis=dict(title="Unidades", gridcolor="#EEF2F7"),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02),
+        margin=dict(t=20, b=10)
+    )
     st.plotly_chart(fig_bar, use_container_width=True)
