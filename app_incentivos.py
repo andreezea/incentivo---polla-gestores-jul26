@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 import os
-import sqlite3
 import io
 import pandas as pd
 import streamlit as st
@@ -433,87 +432,96 @@ def datos_demo():
     return df_mensual, df_diario
 
 # ============================================================================
-# BASE DE DATOS SQLITE — Registro Diario
+# PERSISTENCIA CSV + SESSION STATE — Registro Diario
+# Compatible con Streamlit Cloud y servidores locales.
+# Primario: CSV en disco (persiste entre sesiones en servidores).
+# Fallback: st.session_state (persiste en la sesión actual).
 # ============================================================================
-DB_PATH = "ventas_registro.db"
+CSV_PATH = "ventas_registro.csv"
+_CSV_COLS = ["id","timestamp","gestor","departamento",
+             "producto","fecha","venta_dia","cuota_diaria"]
 
-def init_db():
-    """Crea la tabla de registros si no existe."""
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS registros (
-            id           INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp    TEXT,
-            gestor       TEXT    NOT NULL,
-            departamento TEXT    DEFAULT '',
-            producto     TEXT    NOT NULL,
-            fecha        TEXT    NOT NULL,
-            venta_dia    REAL    NOT NULL,
-            cuota_diaria REAL    DEFAULT 0
-        )
-    """)
-    conn.commit()
-    conn.close()
-
-def insertar_registro_db(gestor, departamento, producto, fecha, venta_dia, cuota_diaria):
-    """Inserta un nuevo registro (append, nunca sobreescribe)."""
-    from datetime import datetime
-    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute("""
-        INSERT INTO registros (timestamp, gestor, departamento, producto, fecha, venta_dia, cuota_diaria)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    """, (ts, gestor, departamento, producto, str(fecha), float(venta_dia), float(cuota_diaria)))
-    conn.commit()
-    conn.close()
-
-def existe_registro_db(gestor, producto, fecha):
-    """True si ya hay al menos un registro para ese gestor+producto+fecha."""
-    conn = sqlite3.connect(DB_PATH)
-    n = conn.execute("""
-        SELECT COUNT(*) FROM registros
-        WHERE gestor=? AND producto=? AND fecha=?
-    """, (gestor, producto, str(fecha))).fetchone()[0]
-    conn.close()
-    return n > 0
+def _df_vacio():
+    return pd.DataFrame(columns=_CSV_COLS)
 
 def cargar_registros_db():
-    """Devuelve todos los registros ordenados por fecha desc."""
-    conn = sqlite3.connect(DB_PATH)
+    """Carga registros desde CSV (si existe) y fusiona con session_state."""
+    # Primero session_state (tiene los datos de esta sesión)
+    df_ss = st.session_state.get("_registros", _df_vacio())
+    # Intentar leer CSV del disco
+    if os.path.exists(CSV_PATH):
+        try:
+            df_csv = pd.read_csv(CSV_PATH, dtype={"id": int})
+            # Fusionar: prioridad CSV (tiene histórico), session_state agrega lo nuevo
+            if not df_ss.empty and not df_csv.empty:
+                df_merged = pd.concat([df_csv, df_ss], ignore_index=True)
+                df_merged = df_merged.drop_duplicates(subset=["id"]).sort_values(
+                    ["fecha","timestamp"], ascending=False)
+                return df_merged
+            return df_csv if not df_csv.empty else df_ss
+        except Exception:
+            pass
+    return df_ss
+
+def _guardar_csv(df: pd.DataFrame):
+    """Intenta escribir el CSV en disco; silencioso si no hay permisos."""
     try:
-        df = pd.read_sql(
-            "SELECT * FROM registros ORDER BY fecha DESC, timestamp DESC", conn)
+        df.to_csv(CSV_PATH, index=False)
     except Exception:
-        df = pd.DataFrame()
-    conn.close()
-    return df
+        pass  # Streamlit Cloud sin permisos de escritura → solo session_state
+
+def insertar_registro_db(gestor, departamento, producto, fecha, venta_dia, cuota_diaria):
+    """Agrega un registro nuevo (append-only)."""
+    from datetime import datetime
+    ts  = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    df  = cargar_registros_db()
+    nid = int(df["id"].max()) + 1 if (not df.empty and "id" in df.columns
+                                       and pd.notna(df["id"].max())) else 1
+    nueva = pd.DataFrame([{
+        "id": nid, "timestamp": ts,
+        "gestor": gestor, "departamento": departamento,
+        "producto": producto, "fecha": str(fecha),
+        "venta_dia": float(venta_dia), "cuota_diaria": float(cuota_diaria),
+    }])
+    df = pd.concat([df, nueva], ignore_index=True)
+    _guardar_csv(df)
+    st.session_state["_registros"] = df
+
+def existe_registro_db(gestor, producto, fecha):
+    """True si ya hay un registro para ese gestor+producto+fecha en la sesión."""
+    df = cargar_registros_db()
+    if df.empty:
+        return False
+    return ((df["gestor"] == gestor) &
+            (df["producto"] == producto) &
+            (df["fecha"] == str(fecha))).any()
 
 def eliminar_registro_db(record_id: int):
-    """Borra un registro por ID (para correcciones)."""
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute("DELETE FROM registros WHERE id=?", (record_id,))
-    conn.commit()
-    conn.close()
+    """Elimina un registro por ID."""
+    df = cargar_registros_db()
+    df = df[df["id"] != record_id].reset_index(drop=True)
+    _guardar_csv(df)
+    st.session_state["_registros"] = df
 
 def db_a_diario(df_raw: pd.DataFrame) -> pd.DataFrame:
     """
-    Convierte registros SQLite al formato de df_diario:
-    Gestor, Departamento, Producto, Fecha (datetime), Venta_Dia, CuotaDiaria
-    Agrupa por Gestor+Producto+Fecha (suma de múltiples entradas del mismo día).
+    Convierte registros CSV/session al formato de df_diario:
+    Gestor, Departamento, Producto, Fecha (datetime), Venta_Dia, CuotaDiaria.
+    Agrupa por Gestor+Producto+Fecha (suma del día).
     """
     df = cargar_registros_db()
     if df.empty:
         return pd.DataFrame()
 
-    # Completar CuotaDiaria desde df_raw si falta
+    # Completar CuotaDiaria desde datos mensuales si la columna falta o es 0
     if "Gestor" in df_raw.columns and "CuotaDiaria" in df_raw.columns:
         cuota_map = (df_raw.drop_duplicates(["Gestor","Producto"])
                            .set_index(["Gestor","Producto"])["CuotaDiaria"]
                            .to_dict())
         def _cd(row):
-            v = float(row.get("cuota_diaria", 0) or 0)
+            v = float(row.get("cuota_diaria") or 0)
             if v == 0:
-                v = cuota_map.get((row["gestor"], row["producto"]), 0)
+                v = float(cuota_map.get((row["gestor"], row["producto"]), 0))
             return v
         df["cuota_diaria"] = df.apply(_cd, axis=1)
 
@@ -523,8 +531,6 @@ def db_a_diario(df_raw: pd.DataFrame) -> pd.DataFrame:
     agg.columns = ["Gestor","Departamento","Producto","Fecha","Venta_Dia","CuotaDiaria"]
     agg["Fecha"] = pd.to_datetime(agg["Fecha"])
     return agg
-
-init_db()   # ← inicializa la DB al arrancar la app
 
 # ============================================================================
 # CARGA DE DATOS
@@ -1239,12 +1245,15 @@ with tab4:
                 eliminar_registro_db(int(del_id))
                 st.success(f"Registro #{int(del_id)} eliminado correctamente.")
                 st.rerun()
-    else:
-        st.info("No hay registros guardados todavía. Usa el formulario para empezar.")
-)
-            if st.button("❌ Eliminar registro", key="btn_del_reg"):
-                eliminar_registro_db(int(del_id))
-                st.success(f"Registro #{int(del_id)} eliminado correctamente.")
-                st.rerun()
+
+        # Botón de descarga del CSV completo
+        csv_bytes = df_hist.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            label="⬇️ Descargar historial completo (.csv)",
+            data=csv_bytes,
+            file_name="historial_ventas.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
     else:
         st.info("No hay registros guardados todavía. Usa el formulario para empezar.")
