@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 import os
+import sqlite3
+import io
 import pandas as pd
 import streamlit as st
 import plotly.express as px
@@ -431,6 +433,100 @@ def datos_demo():
     return df_mensual, df_diario
 
 # ============================================================================
+# BASE DE DATOS SQLITE — Registro Diario
+# ============================================================================
+DB_PATH = "ventas_registro.db"
+
+def init_db():
+    """Crea la tabla de registros si no existe."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS registros (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp    TEXT,
+            gestor       TEXT    NOT NULL,
+            departamento TEXT    DEFAULT '',
+            producto     TEXT    NOT NULL,
+            fecha        TEXT    NOT NULL,
+            venta_dia    REAL    NOT NULL,
+            cuota_diaria REAL    DEFAULT 0
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+def insertar_registro_db(gestor, departamento, producto, fecha, venta_dia, cuota_diaria):
+    """Inserta un nuevo registro (append, nunca sobreescribe)."""
+    from datetime import datetime
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("""
+        INSERT INTO registros (timestamp, gestor, departamento, producto, fecha, venta_dia, cuota_diaria)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (ts, gestor, departamento, producto, str(fecha), float(venta_dia), float(cuota_diaria)))
+    conn.commit()
+    conn.close()
+
+def existe_registro_db(gestor, producto, fecha):
+    """True si ya hay al menos un registro para ese gestor+producto+fecha."""
+    conn = sqlite3.connect(DB_PATH)
+    n = conn.execute("""
+        SELECT COUNT(*) FROM registros
+        WHERE gestor=? AND producto=? AND fecha=?
+    """, (gestor, producto, str(fecha))).fetchone()[0]
+    conn.close()
+    return n > 0
+
+def cargar_registros_db():
+    """Devuelve todos los registros ordenados por fecha desc."""
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        df = pd.read_sql(
+            "SELECT * FROM registros ORDER BY fecha DESC, timestamp DESC", conn)
+    except Exception:
+        df = pd.DataFrame()
+    conn.close()
+    return df
+
+def eliminar_registro_db(record_id: int):
+    """Borra un registro por ID (para correcciones)."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("DELETE FROM registros WHERE id=?", (record_id,))
+    conn.commit()
+    conn.close()
+
+def db_a_diario(df_raw: pd.DataFrame) -> pd.DataFrame:
+    """
+    Convierte registros SQLite al formato de df_diario:
+    Gestor, Departamento, Producto, Fecha (datetime), Venta_Dia, CuotaDiaria
+    Agrupa por Gestor+Producto+Fecha (suma de múltiples entradas del mismo día).
+    """
+    df = cargar_registros_db()
+    if df.empty:
+        return pd.DataFrame()
+
+    # Completar CuotaDiaria desde df_raw si falta
+    if "Gestor" in df_raw.columns and "CuotaDiaria" in df_raw.columns:
+        cuota_map = (df_raw.drop_duplicates(["Gestor","Producto"])
+                           .set_index(["Gestor","Producto"])["CuotaDiaria"]
+                           .to_dict())
+        def _cd(row):
+            v = float(row.get("cuota_diaria", 0) or 0)
+            if v == 0:
+                v = cuota_map.get((row["gestor"], row["producto"]), 0)
+            return v
+        df["cuota_diaria"] = df.apply(_cd, axis=1)
+
+    agg = (df.groupby(["gestor","departamento","producto","fecha"])
+             .agg(Venta_Dia=("venta_dia","sum"), CuotaDiaria=("cuota_diaria","first"))
+             .reset_index())
+    agg.columns = ["Gestor","Departamento","Producto","Fecha","Venta_Dia","CuotaDiaria"]
+    agg["Fecha"] = pd.to_datetime(agg["Fecha"])
+    return agg
+
+init_db()   # ← inicializa la DB al arrancar la app
+
+# ============================================================================
 # CARGA DE DATOS
 # ============================================================================
 ADMIN_PASSWORD = "admin2025"      # ← cambia esta contraseña
@@ -512,7 +608,18 @@ if not df_diario.empty:
             "Revisa que la columna Fecha contenga fechas reales, "
             "no nombres de producto ni de mes."
         )
-        df_diario = pd.DataFrame()   # se ignora la hoja Diario hasta que se corrija
+        df_diario = pd.DataFrame()
+
+# ── Merge datos SQLite (Registro Diario) → df_diario ─────────────────────────
+df_diario_sqlite = db_a_diario(df_raw)
+if not df_diario_sqlite.empty:
+    df_diario = pd.concat([df_diario, df_diario_sqlite], ignore_index=True)
+    # Suma registros duplicados (mismo Gestor+Producto+Fecha de ambas fuentes)
+    if not df_diario.empty:
+        df_diario = (df_diario
+                     .groupby(["Gestor","Departamento","Producto","Fecha"])
+                     .agg(Venta_Dia=("Venta_Dia","sum"), CuotaDiaria=("CuotaDiaria","first"))
+                     .reset_index())
 
 # ── Procesar base ────────────────────────────────────────────────────────────
 df = procesar(df_raw)
@@ -590,7 +697,12 @@ with st.sidebar.expander("🆕 Motor por producto"):
 # ============================================================================
 # TABS
 # ============================================================================
-tab1, tab2, tab3 = st.tabs(["📊 Resumen General", "📦 Detalle por Producto", "📅 Seguimiento Diario"])
+tab1, tab2, tab3, tab4 = st.tabs([
+    "📊 Resumen General",
+    "📦 Detalle por Producto",
+    "📅 Seguimiento Diario",
+    "📝 Registro Diario",
+])
 
 # ============================================================================
 # TAB 1 — RESUMEN GENERAL
@@ -972,3 +1084,167 @@ with tab3:
         margin=dict(t=20, b=10)
     )
     st.plotly_chart(fig_bar, use_container_width=True)
+
+# ============================================================================
+# TAB 4 — REGISTRO DIARIO DE VENTAS
+# ============================================================================
+with tab4:
+    # ── Header banner ────────────────────────────────────────────────────────
+    st.markdown("""
+    <div style="background:linear-gradient(135deg,#1F3864 0%,#2E75B6 100%);
+                border-radius:12px; padding:18px 30px 14px 30px; margin-bottom:20px;
+                box-shadow:0 4px 16px rgba(31,56,100,0.25);">
+        <h1 style="color:white!important; margin:0; font-size:22px; font-weight:800;">
+            📝 Registro Diario de Ventas</h1>
+        <p style="color:rgba(255,255,255,0.75); margin:4px 0 0 0; font-size:13px;">
+            Registra tus ventas del día · Los datos se guardan automáticamente y
+            se integran al motor de puntos
+        </p>
+    </div>""", unsafe_allow_html=True)
+
+    col_form, col_hoy = st.columns([3, 2])
+
+    # ── Formulario de carga ───────────────────────────────────────────────────
+    with col_form:
+        subheader("📋 Nueva Venta")
+
+        gestores_validos = (sorted(df_raw["Gestor"].unique().tolist())
+                            if "Gestor" in df_raw.columns else [])
+        depto_map = {}
+        if "Gestor" in df_raw.columns and "Departamento" in df_raw.columns:
+            depto_map = (df_raw.drop_duplicates("Gestor")
+                               .set_index("Gestor")["Departamento"].to_dict())
+
+        with st.form("form_registro_diario", clear_on_submit=True):
+            r1c1, r1c2 = st.columns(2)
+
+            if gestores_validos:
+                gestor_sel_f = r1c1.selectbox("👤 Gestor *", gestores_validos)
+            else:
+                gestor_sel_f = r1c1.text_input("👤 Gestor *", placeholder="Tu nombre completo")
+
+            producto_sel_f = r1c2.selectbox("📦 Producto *", PRODUCTOS_ORDEN)
+
+            r2c1, r2c2 = st.columns(2)
+            fecha_f  = r2c1.date_input("📅 Fecha", value=date.today())
+            ventas_f = r2c2.number_input("🛒 Unidades vendidas *", min_value=0, step=1, value=0)
+
+            submitted_f = st.form_submit_button(
+                "💾  Guardar Registro", use_container_width=True, type="primary")
+
+            if submitted_f:
+                if not str(gestor_sel_f).strip():
+                    st.error("⚠️ El campo Gestor es obligatorio.")
+                elif ventas_f == 0:
+                    st.warning("⚠️ Ingresaste 0 ventas. ¿Seguro que quieres guardar?")
+                else:
+                    depto_f = depto_map.get(gestor_sel_f, "")
+
+                    cuota_d_f = 0.0
+                    if "Gestor" in df_raw.columns:
+                        mask_c = ((df_raw["Gestor"] == gestor_sel_f) &
+                                  (df_raw["Producto"] == producto_sel_f))
+                        if mask_c.any():
+                            row_c = df_raw[mask_c].iloc[0]
+                            if "CuotaDiaria" in row_c and pd.notna(row_c["CuotaDiaria"]):
+                                cuota_d_f = float(row_c["CuotaDiaria"])
+                            elif "Cuota" in row_c:
+                                cuota_d_f = float(row_c["Cuota"]) / 22
+
+                    es_dup = existe_registro_db(gestor_sel_f, producto_sel_f, str(fecha_f))
+
+                    insertar_registro_db(
+                        gestor=gestor_sel_f,
+                        departamento=depto_f,
+                        producto=producto_sel_f,
+                        fecha=str(fecha_f),
+                        venta_dia=float(ventas_f),
+                        cuota_diaria=cuota_d_f,
+                    )
+
+                    if es_dup:
+                        st.warning(
+                            f"⚠️ Ya tenías un registro para **{gestor_sel_f}** / "
+                            f"**{producto_sel_f}** el {fecha_f}. "
+                            "Se sumó el nuevo registro al acumulado del día."
+                        )
+                    else:
+                        st.success(
+                            f"✅ Guardado · **{gestor_sel_f}** · {producto_sel_f} · "
+                            f"{int(ventas_f)} unidades · {fecha_f}"
+                        )
+                    st.rerun()
+
+    # ── Resumen de hoy ────────────────────────────────────────────────────────
+    with col_hoy:
+        subheader(f"📊 Hoy — {date.today().strftime('%d/%m/%Y')}")
+        df_db_hoy = cargar_registros_db()
+        hoy_str   = str(date.today())
+
+        if not df_db_hoy.empty:
+            hoy_rows = df_db_hoy[df_db_hoy["fecha"] == hoy_str]
+            if not hoy_rows.empty:
+                hoy_grp = (hoy_rows.groupby("producto")["venta_dia"]
+                                   .sum().reset_index()
+                                   .sort_values("producto"))
+                for _, row in hoy_grp.iterrows():
+                    color = PALETA[PRODUCTOS_ORDEN.index(row["producto"]) % len(PALETA)]
+                    st.markdown(f"""
+                    <div style="background:white; border-radius:8px; padding:10px 16px;
+                                border-left:5px solid {color}; margin-bottom:8px;
+                                box-shadow:0 1px 4px rgba(31,56,100,0.1);">
+                        <span style="font-size:11px; color:#7A8DA8; font-weight:700;
+                                     text-transform:uppercase;">{row['producto']}</span><br>
+                        <span style="font-size:26px; color:#1F3864; font-weight:800;">
+                            {int(row['venta_dia'])}</span>
+                        <span style="font-size:12px; color:#7A8DA8;"> unidades</span>
+                    </div>
+                    """, unsafe_allow_html=True)
+            else:
+                st.info("Aún no hay registros de hoy.")
+        else:
+            st.info("Usa el formulario para empezar a registrar ventas.")
+
+    # ── Historial reciente ────────────────────────────────────────────────────
+    st.markdown("<div style='margin-top:8px'></div>", unsafe_allow_html=True)
+    subheader("📜 Historial de Registros")
+
+    df_hist = cargar_registros_db()
+    if not df_hist.empty:
+        df_show = (df_hist[["id","timestamp","gestor","departamento",
+                             "producto","fecha","venta_dia","cuota_diaria"]]
+                          .head(100).copy())
+        df_show.columns = ["ID","Registrado","Gestor","Depto",
+                           "Producto","Fecha","Ventas","Cuota Día"]
+        df_show["Ventas"]     = df_show["Ventas"].astype(int)
+        df_show["Cuota Día"]  = df_show["Cuota Día"].round(1)
+        st.dataframe(df_show, use_container_width=True, hide_index=True)
+
+        with st.expander("📈 Resumen acumulado del historial"):
+            resumen = (df_hist.groupby(["gestor","producto"])["venta_dia"]
+                              .sum().reset_index()
+                              .rename(columns={"gestor":"Gestor",
+                                               "producto":"Producto",
+                                               "venta_dia":"Total Ventas"}))
+            resumen["Total Ventas"] = resumen["Total Ventas"].astype(int)
+            st.dataframe(resumen, use_container_width=True, hide_index=True)
+
+        with st.expander("🗑️ Corregir un registro"):
+            st.caption(
+                "Si cometiste un error, puedes eliminar el registro usando el "
+                "**ID** que aparece en la tabla de historial.")
+            del_id = st.number_input(
+                "ID del registro a eliminar", min_value=1, step=1, key="del_reg_id")
+            if st.button("❌ Eliminar registro", key="btn_del_reg"):
+                eliminar_registro_db(int(del_id))
+                st.success(f"Registro #{int(del_id)} eliminado correctamente.")
+                st.rerun()
+    else:
+        st.info("No hay registros guardados todavía. Usa el formulario para empezar.")
+)
+            if st.button("❌ Eliminar registro", key="btn_del_reg"):
+                eliminar_registro_db(int(del_id))
+                st.success(f"Registro #{int(del_id)} eliminado correctamente.")
+                st.rerun()
+    else:
+        st.info("No hay registros guardados todavía. Usa el formulario para empezar.")
