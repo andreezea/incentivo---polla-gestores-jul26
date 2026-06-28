@@ -15,7 +15,7 @@ _LOGO_B64 = "iVBORw0KGgoAAAANSUhEUgAAASAAAABgCAYAAAC9rK9YAAB9lUlEQVR4nOy9d7gtSVX
 _logo_html = f'<img src="data:image/png;base64,{_LOGO_B64}" style="height:65px;object-fit:contain;padding:4px;" alt="Fanero SAC">'
 
 
-st.set_page_config(page_title="Incentivo de Ventas", layout="wide", page_icon="🏆")
+st.set_page_config(page_title="Incentivo Fanero Julio 2026", layout="wide", page_icon="🏆")
 
 # ============================================================================
 # ESTILOS GLOBALES — Power BI look
@@ -1095,7 +1095,7 @@ with tab1:
     <div style="background:linear-gradient(135deg,#0A2A5E 0%,#0B5ED7 100%);
                 border-radius:12px; padding:22px 30px 18px 30px; margin-bottom:20px;
                 box-shadow:0 4px 16px rgba(31,56,100,0.25);">
-        <p style="color:#FFFFFF; margin:0; font-size:26px; font-weight:800; letter-spacing:-0.3px;">🏆 Dashboard Gerencial de Incentivos</p>
+        <p style="color:#FFFFFF; margin:0; font-size:26px; font-weight:800; letter-spacing:-0.3px;">🏆 Incentivo Fanero Julio 2026</p>
         <p style="color:#FFFFFF; margin:4px 0 0 0; font-size:13px;">
             Seguimiento de ventas · Ranking · Puntos por Producto
         </p>
