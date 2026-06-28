@@ -1605,9 +1605,3 @@ with tab4:
             )
         else:
             st.info("No hay registros. Ingresa tu DNI para registrar ventas.")
-  file_name="historial_ventas.csv",
-                mime="text/csv",
-                use_container_width=True,
-            )
-        else:
-            st.info("No hay registros. Ingresa tu DNI para registrar ventas.")
