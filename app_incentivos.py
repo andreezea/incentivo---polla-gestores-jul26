@@ -195,26 +195,46 @@ def subheader(texto):
     """Encabezado de sección estilo Power BI."""
     st.markdown(f'<div class="section-header">{texto}</div>', unsafe_allow_html=True)
 
-def kpi_card(col, label, value, delta=None, color="#0B5ED7"):
-    """KPI card con fondo azul corporativo y texto blanco."""
+def _kpi_html(label, value, delta=None, color="#0B5ED7", flex="1"):
+    """Devuelve el HTML de una KPI card (sin renderizar)."""
     delta_html = ""
     if delta is not None:
         s = str(delta)
         is_pos = s.startswith("+") or (not s.startswith("-") and s not in ("", "0"))
-        delta_html = (f'<p style="font-size:12px; color:{"#7DFFB3" if is_pos else "#FFB3B3"};'
-                      f' font-weight:700; margin:4px 0 0 0;">{s}</p>')
-    col.markdown(f"""
-    <div style="background:linear-gradient(135deg,#0A2A5E 0%,{color} 100%) !important;
-                background-color:#0A2A5E !important;
-                border-radius:12px; padding:18px 20px 14px 20px;
-                box-shadow:0 4px 18px rgba(0,33,71,0.28);
-                border-left:5px solid #C9982A; min-height:90px; margin-bottom:4px;">
-        <p style="font-size:11px; color:rgba(255,255,255,0.65); font-weight:700;
-                  text-transform:uppercase; letter-spacing:0.8px; margin:0 0 6px 0;">{label}</p>
-        <p style="font-size:30px; color:#FFFFFF; font-weight:800; margin:0; line-height:1.1;">{value}</p>
-        {delta_html}
-    </div>
-    """, unsafe_allow_html=True)
+        delta_html = (f'<p style="font-size:12px;color:{"#7DFFB3" if is_pos else "#FFB3B3"};'
+                      f'font-weight:700;margin:4px 0 0 0;">{s}</p>')
+    return (
+        f'<div style="flex:{flex};min-width:0;'
+        f'background:linear-gradient(135deg,#0A2A5E 0%,{color} 100%);'
+        f'border-radius:12px;padding:18px 20px 14px 20px;'
+        f'box-shadow:0 4px 18px rgba(0,33,71,0.30);'
+        f'border-left:5px solid #C9982A;min-height:90px;margin-bottom:4px;">'
+        f'<p style="font-size:11px;color:rgba(255,255,255,0.65);font-weight:700;'
+        f'text-transform:uppercase;letter-spacing:0.8px;margin:0 0 6px 0;">{label}</p>'
+        f'<p style="font-size:28px;color:#FFFFFF;font-weight:800;margin:0;line-height:1.1;">{value}</p>'
+        f'{delta_html}</div>'
+    )
+
+def render_kpi_row(cards, gap="12px"):
+    """Renderiza una fila de KPI cards en un solo bloque HTML con flexbox.
+    cards: lista de dicts {label, value, delta (opt), color (opt), flex (opt)}
+    Usa st.markdown() directo (no col.markdown) para evitar que el wrapper
+    de columna de Streamlit tape el gradiente.
+    """
+    inner = "".join(
+        _kpi_html(
+            c["label"], c["value"],
+            c.get("delta"), c.get("color","#0B5ED7"), c.get("flex","1")
+        ) for c in cards
+    )
+    st.markdown(
+        f'<div style="display:flex;gap:{gap};flex-wrap:wrap;margin-bottom:6px;">{inner}</div>',
+        unsafe_allow_html=True
+    )
+
+def kpi_card(col, label, value, delta=None, color="#0B5ED7"):
+    """Mantiene compatibilidad — delega a render_kpi_row con 1 sola tarjeta."""
+    render_kpi_row([{"label":label,"value":value,"delta":delta,"color":color}])
 
 # ============================================================================
 # PARÁMETROS — SISTEMA BASE
@@ -1002,49 +1022,54 @@ with tab1:
     var   = ((v_act - v_ant) / v_ant * 100) if v_ant else 0
     cumpl_prom = df_gestor["Cumplimiento_%"].mean()
 
-    k1, k2, k3, k4, k5 = st.columns(5)
-    kpi_card(k1, "Gestores",              str(df_gestor["Gestor"].nunique()),       color="#0A2A5E")
-    kpi_card(k2, "Cumplimiento Promedio", f"{cumpl_prom:.0f}%",
-             delta=("🟢 Sobre meta" if cumpl_prom >= 100 else "🔴 Bajo meta"),       color="#0B5ED7")
-    kpi_card(k3, "Total Puntos",          f"{int(df_gestor['Total_Puntos'].sum()):,}", color="#0B5ED7")
-    kpi_card(k4, "Ventas del Mes",        f"{int(v_act):,}",                         color="#0B5ED7")
-    kpi_card(k5, "Variación vs Mes Ant.", f"{var:+.1f}%",
-             delta=("▲ Crecimiento" if var >= 0 else "▼ Caída"),
-             color="#27AE60" if var >= 0 else "#E45756")
+    render_kpi_row([
+        {"label":"Gestores",              "value":str(df_gestor["Gestor"].nunique()),          "color":"#0A2A5E"},
+        {"label":"Cumplimiento Promedio", "value":f"{cumpl_prom:.0f}%",
+         "delta":"🟢 Sobre meta" if cumpl_prom >= 100 else "🔴 Bajo meta",                    "color":"#0B5ED7"},
+        {"label":"Total Puntos",          "value":f"{int(df_gestor['Total_Puntos'].sum()):,}", "color":"#0B5ED7"},
+        {"label":"Ventas del Mes",        "value":f"{int(v_act):,}",                            "color":"#0B5ED7"},
+        {"label":"Variación vs Mes Ant.", "value":f"{var:+.1f}%",
+         "delta":"▲ Crecimiento" if var >= 0 else "▼ Caída",
+         "color":"#198754" if var >= 0 else "#DC3545"},
+    ])
 
     st.markdown("<div style='margin-top:20px'></div>", unsafe_allow_html=True)
 
     # ── Puntos sistema base + motor (2 filas de KPIs pequeños) ───────────────
     subheader("📌 Sistema Base de Puntos")
-    b1, b2, b3, sp1 = st.columns([1,1,1,1])
-    kpi_card(b1, "Puntos Cuota",       str(int(df_gestor["Puntos_Base"].sum())),    color="#0A2A5E")
-    kpi_card(b2, "Puntos Diario Base", str(int(df_gestor["Puntos_Diario"].sum())),  color="#0B5ED7")
-    kpi_card(b3, "Puntos Crecimiento", str(int(df_gestor["Puntos_Crec"].sum())),    color="#0B5ED7")
-    sp1.markdown("")
+    render_kpi_row([
+        {"label":"Puntos Cuota",       "value":str(int(df_gestor["Puntos_Base"].sum())),   "color":"#0A2A5E", "flex":"1"},
+        {"label":"Puntos Diario Base", "value":str(int(df_gestor["Puntos_Diario"].sum())), "color":"#0B5ED7", "flex":"1"},
+        {"label":"Puntos Crecimiento", "value":str(int(df_gestor["Puntos_Crec"].sum())),   "color":"#0B5ED7", "flex":"1"},
+        {"label":"",                   "value":"",                                          "color":"transparent", "flex":"1"},
+    ])
 
     st.markdown("<div style='margin-top:14px'></div>", unsafe_allow_html=True)
     subheader("🆕 Motor por Producto")
-    n1, n2, n3, n4, n5, n6 = st.columns(6)
-    kpi_card(n1, "Diario",   str(int(df_gestor["PD_Diario"].sum())),  color="#0A2A5E")
-    kpi_card(n2, "Extra",    str(int(df_gestor["PD_Extra"].sum())),   color="#0B5ED7")
-    kpi_card(n3, "Semanal",  str(int(df_gestor["PD_Semanal"].sum())), color="#0B5ED7")
-    kpi_card(n4, "Mensual",  str(int(df_gestor["PD_Mensual"].sum())), color="#0A2A5E")
-    kpi_card(n5, "Mes Ant.", str(int(df_gestor["PD_MesAnt"].sum())),  color="#0B5ED7")
-    kpi_card(n6, "UR",       str(int(df_gestor["PD_UR"].sum())),      color="#198754")
+    render_kpi_row([
+        {"label":"Diario",   "value":str(int(df_gestor["PD_Diario"].sum())),  "color":"#0A2A5E"},
+        {"label":"Extra",    "value":str(int(df_gestor["PD_Extra"].sum())),   "color":"#0B5ED7"},
+        {"label":"Semanal",  "value":str(int(df_gestor["PD_Semanal"].sum())), "color":"#0B5ED7"},
+        {"label":"Mensual",  "value":str(int(df_gestor["PD_Mensual"].sum())), "color":"#0A2A5E"},
+        {"label":"Mes Ant.", "value":str(int(df_gestor["PD_MesAnt"].sum())),  "color":"#0B5ED7"},
+        {"label":"UR",       "value":str(int(df_gestor["PD_UR"].sum())),      "color":"#198754"},
+    ])
 
     st.markdown("<div style='margin-top:20px'></div>", unsafe_allow_html=True)
 
     # ── Top 3 ────────────────────────────────────────────────────────────────
     subheader("🥇 Top Performers")
     rank = df_gestor.sort_values("Total_Puntos", ascending=False).reset_index(drop=True)
-    top_cols = st.columns(3)
-    medal_colors = ["#FFD700", "#C0C0C0", "#CD7F32"]
+    medal_colors = ["#B8960C", "#6B7280", "#92400E"]
+    top_cards = []
     for i, row in enumerate(rank.head(3).itertuples()):
-        kpi_card(top_cols[i],
-                 f"{'🥇🥈🥉'[i]}  {row.Gestor}",
-                 f"{int(row.Total_Puntos):,} pts",
-                 delta=f"Base {int(row.Puntos_Base)} · Motor {int(row.Puntos_Producto)}",
-                 color=medal_colors[i])
+        top_cards.append({
+            "label": f"{'🥇🥈🥉'[i]}  {row.Gestor}",
+            "value": f"{int(row.Total_Puntos):,} pts",
+            "delta": f"Base {int(row.Puntos_Base)} · Motor {int(row.Puntos_Producto)}",
+            "color": medal_colors[i],
+        })
+    render_kpi_row(top_cards)
 
     st.markdown("<div style='margin-top:20px'></div>", unsafe_allow_html=True)
 
