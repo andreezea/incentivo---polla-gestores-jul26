@@ -168,6 +168,14 @@ h2, h3 { color: #0A3A7A !important; font-weight: 700 !important; }
     background: linear-gradient(135deg, #0A3A7A, #1565C0) !important;
     box-shadow: 0 4px 14px rgba(0,33,71,0.35) !important;
 }
+
+/* ── Transparentar wrappers de columna para que kpi_card sea visible ── */
+[data-testid="column"] > div,
+[data-testid="column"] .stMarkdown,
+[data-testid="column"] .element-container,
+[data-testid="stVerticalBlock"] > div.element-container {
+    background: transparent !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -196,7 +204,8 @@ def kpi_card(col, label, value, delta=None, color="#0B5ED7"):
         delta_html = (f'<p style="font-size:12px; color:{"#7DFFB3" if is_pos else "#FFB3B3"};'
                       f' font-weight:700; margin:4px 0 0 0;">{s}</p>')
     col.markdown(f"""
-    <div style="background:linear-gradient(135deg,#0A2A5E 0%,{color} 100%);
+    <div style="background:linear-gradient(135deg,#0A2A5E 0%,{color} 100%) !important;
+                background-color:#0A2A5E !important;
                 border-radius:12px; padding:18px 20px 14px 20px;
                 box-shadow:0 4px 18px rgba(0,33,71,0.28);
                 border-left:5px solid #C9982A; min-height:90px; margin-bottom:4px;">
