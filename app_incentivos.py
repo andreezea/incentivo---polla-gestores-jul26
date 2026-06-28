@@ -10,27 +10,28 @@ import base64
 import random
 
 
-# ── Logo corporativo ──────────────────────────────────────────────────────────
-def get_logo_b64(path="fanero_logo.png"):
-    """Carga el logo y lo devuelve en base64. Retorna None si no existe."""
-    try:
-        with open(path, "rb") as f:
-            return base64.b64encode(f.read()).decode()
-    except FileNotFoundError:
-        return None
+# ── Logo corporativo (SVG inline) ────────────────────────────────────────────
+_logo_html = """<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 240 78' width='180' height='58'>
+  <defs>
+    <linearGradient id='lg' x1='0' y1='0' x2='1' y2='1'>
+      <stop offset='0%' stop-color='#1565C0'/>
+      <stop offset='100%' stop-color='#0A2A5E'/>
+    </linearGradient>
+  </defs>
+  <rect width='240' height='78' rx='12' fill='url(#lg)'/>
+  <ellipse cx='118' cy='41' rx='95' ry='30' fill='#0B5ED7' opacity='0.45'/>
+  <line x1='24' y1='20' x2='24' y2='11' stroke='white' stroke-width='2.2' stroke-linecap='round'/>
+  <circle cx='24' cy='8.5' r='4' fill='none' stroke='white' stroke-width='1.8'/>
+  <circle cx='24' cy='8.5' r='1.5' fill='white'/>
+  <text x='15' y='55' font-family='Arial Black,sans-serif' font-size='36'
+        font-weight='900' font-style='italic' fill='white' letter-spacing='-1'>fanero</text>
+  <text x='186' y='37' font-family='Arial,sans-serif' font-size='7.5'
+        font-weight='700' fill='white' opacity='0.9'>S.A.C.</text>
+  <text x='120' y='70' font-family='Arial,sans-serif' font-size='6.8'
+        font-weight='600' fill='white' opacity='0.65' text-anchor='middle' letter-spacing='1'>
+    DISTRIBUIDORA Y COMERCIALIZADORA</text>
+</svg>"""
 
-_logo_b64 = get_logo_b64()
-_logo_html = (
-    f'<img src="data:image/png;base64,{_logo_b64}" style="height:52px;object-fit:contain;" alt="Fanero">' if _logo_b64
-    else '<span style="color:#C9982A;font-size:22px;font-weight:900;letter-spacing:-0.5px;">fanero</span>'
-)
-
-
-# ── Logo corporativo incrustado (SVG base64) ─────────────────────────────────
-_LOGO_SVG_B64 = "PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyMjAgODAiIHdpZHRoPSIyMjAiIGhlaWdodD0iODAiPgogIDxkZWZzPgogICAgPHJhZGlhbEdyYWRpZW50IGlkPSJiZyIgY3g9IjUwJSIgY3k9IjUwJSIgcj0iNjAlIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwJSIgc3RvcC1jb2xvcj0iIzBCNUVENyIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiMwQTJBNUUiLz4KICAgIDwvcmFkaWFsR3JhZGllbnQ+CiAgPC9kZWZzPgogIDxyZWN0IHdpZHRoPSIyMjAiIGhlaWdodD0iODAiIHJ4PSIxNCIgcnk9IjE0IiBmaWxsPSJ1cmwoI2JnKSIvPgogIDxlbGxpcHNlIGN4PSIxMDgiIGN5PSI0MiIgcng9IjkwIiByeT0iMzQiIGZpbGw9IiMxNTY1QzAiIG9wYWNpdHk9IjAuNTUiLz4KICA8bGluZSB4MT0iMjIiIHkxPSIxOCIgeDI9IjIyIiB5Mj0iMTAiIHN0cm9rZT0id2hpdGUiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CiAgPGNpcmNsZSBjeD0iMjIiIGN5PSI4IiByPSIzIiBmaWxsPSJub25lIiBzdHJva2U9IndoaXRlIiBzdHJva2Utd2lkdGg9IjEuNSIvPgogIDxjaXJjbGUgY3g9IjIyIiBjeT0iOCIgcj0iMS4yIiBmaWxsPSJ3aGl0ZSIvPgogIDx0ZXh0IHg9IjE0IiB5PSI1NCIgZm9udC1mYW1pbHk9IkFyaWFsIEJsYWNrLCBzYW5zLXNlcmlmIiBmb250LXNpemU9IjM0IiBmb250LXdlaWdodD0iOTAwIiBmb250LXN0eWxlPSJpdGFsaWMiIGZpbGw9IndoaXRlIiBsZXR0ZXItc3BhY2luZz0iLTEiPmZhbmVybzwvdGV4dD4KICA8dGV4dCB4PSIxNzIiIHk9IjM4IiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iNyIgZm9udC13ZWlnaHQ9IjcwMCIgZmlsbD0id2hpdGUiIG9wYWNpdHk9IjAuODUiPlMuQS5DLjwvdGV4dD4KICA8dGV4dCB4PSIxMDgiIHk9IjY4IiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iNi41IiBmb250LXdlaWdodD0iNjAwIiBmaWxsPSJ3aGl0ZSIgb3BhY2l0eT0iMC43MCIgdGV4dC1hbmNob3I9Im1pZGRsZSIgbGV0dGVyLXNwYWNpbmc9IjAuOCI+RElTVFJJQlVJRE9SQSBZIENPTUVSQ0lBTElaQURPUkE8L3RleHQ+Cjwvc3ZnPg=="
-_logo_html = (
-    f'<img src="data:image/svg+xml;base64,{_LOGO_SVG_B64}'     f' style="height:54px;object-fit:contain;" alt="Fanero SAC">'
-)
 
 st.set_page_config(page_title="Incentivo de Ventas", layout="wide", page_icon="🏆")
 
@@ -236,6 +237,15 @@ h2, h3 { color: #0A3A7A !important; font-weight: 700 !important; }
     letter-spacing:1.2px; text-transform:uppercase;
     margin-left:14px; border-left:1px solid rgba(255,255,255,0.20);
     padding-left:14px;
+}
+
+/* ── Dataframes — fondo gris humo, texto azul ── */
+[data-testid="stDataFrame"] [data-testid="glideDataEditor"] {
+    background-color: #F5F6FA !important;
+}
+[data-testid="stDataFrame"] .dvn-scroller,
+[data-testid="stDataFrame"] canvas {
+    background-color: #F5F6FA !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -1393,16 +1403,26 @@ with tab3:
                 try:
                     v = float(str(df.loc[idx, col]).replace("%",""))
                     if v >= 100:
-                        style.loc[idx, col] = "background-color:#d4edda;color:#155724;font-weight:bold"
+                        style.loc[idx, col] = "color:#198754;font-weight:800"
                     elif v >= 80:
-                        style.loc[idx, col] = "background-color:#fff3cd;color:#856404;font-weight:bold"
+                        style.loc[idx, col] = "color:#B45309;font-weight:800"
                     else:
-                        style.loc[idx, col] = "background-color:#f8d7da;color:#721c24;font-weight:bold"
+                        style.loc[idx, col] = "color:#DC3545;font-weight:800"
                 except (TypeError, ValueError):
                     pass
         return style
 
-    st.dataframe(pivot_h_disp.style.apply(style_hoy, axis=None), use_container_width=True)
+    tbl_props = [
+        ("background-color", "#F5F6FA"),
+        ("color", "#0A2A5E"),
+        ("font-size", "13px"),
+    ]
+    st.dataframe(
+        pivot_h_disp.style
+            .apply(style_hoy, axis=None)
+            .set_properties(**{"background-color": "#F5F6FA", "color": "#0A2A5E"}),
+        use_container_width=True
+    )
 
     st.markdown("<div style='margin-top:16px'></div>", unsafe_allow_html=True)
 
