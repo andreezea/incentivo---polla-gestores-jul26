@@ -6,7 +6,31 @@ import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import date, timedelta
+import base64
 import random
+
+
+# ── Logo corporativo ──────────────────────────────────────────────────────────
+def get_logo_b64(path="fanero_logo.png"):
+    """Carga el logo y lo devuelve en base64. Retorna None si no existe."""
+    try:
+        with open(path, "rb") as f:
+            return base64.b64encode(f.read()).decode()
+    except FileNotFoundError:
+        return None
+
+_logo_b64 = get_logo_b64()
+_logo_html = (
+    f'<img src="data:image/png;base64,{_logo_b64}" style="height:52px;object-fit:contain;" alt="Fanero">' if _logo_b64
+    else '<span style="color:#C9982A;font-size:22px;font-weight:900;letter-spacing:-0.5px;">fanero</span>'
+)
+
+
+# ── Logo corporativo incrustado (SVG base64) ─────────────────────────────────
+_LOGO_SVG_B64 = "PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyMjAgODAiIHdpZHRoPSIyMjAiIGhlaWdodD0iODAiPgogIDxkZWZzPgogICAgPHJhZGlhbEdyYWRpZW50IGlkPSJiZyIgY3g9IjUwJSIgY3k9IjUwJSIgcj0iNjAlIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwJSIgc3RvcC1jb2xvcj0iIzBCNUVENyIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiMwQTJBNUUiLz4KICAgIDwvcmFkaWFsR3JhZGllbnQ+CiAgPC9kZWZzPgogIDxyZWN0IHdpZHRoPSIyMjAiIGhlaWdodD0iODAiIHJ4PSIxNCIgcnk9IjE0IiBmaWxsPSJ1cmwoI2JnKSIvPgogIDxlbGxpcHNlIGN4PSIxMDgiIGN5PSI0MiIgcng9IjkwIiByeT0iMzQiIGZpbGw9IiMxNTY1QzAiIG9wYWNpdHk9IjAuNTUiLz4KICA8bGluZSB4MT0iMjIiIHkxPSIxOCIgeDI9IjIyIiB5Mj0iMTAiIHN0cm9rZT0id2hpdGUiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CiAgPGNpcmNsZSBjeD0iMjIiIGN5PSI4IiByPSIzIiBmaWxsPSJub25lIiBzdHJva2U9IndoaXRlIiBzdHJva2Utd2lkdGg9IjEuNSIvPgogIDxjaXJjbGUgY3g9IjIyIiBjeT0iOCIgcj0iMS4yIiBmaWxsPSJ3aGl0ZSIvPgogIDx0ZXh0IHg9IjE0IiB5PSI1NCIgZm9udC1mYW1pbHk9IkFyaWFsIEJsYWNrLCBzYW5zLXNlcmlmIiBmb250LXNpemU9IjM0IiBmb250LXdlaWdodD0iOTAwIiBmb250LXN0eWxlPSJpdGFsaWMiIGZpbGw9IndoaXRlIiBsZXR0ZXItc3BhY2luZz0iLTEiPmZhbmVybzwvdGV4dD4KICA8dGV4dCB4PSIxNzIiIHk9IjM4IiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iNyIgZm9udC13ZWlnaHQ9IjcwMCIgZmlsbD0id2hpdGUiIG9wYWNpdHk9IjAuODUiPlMuQS5DLjwvdGV4dD4KICA8dGV4dCB4PSIxMDgiIHk9IjY4IiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iNi41IiBmb250LXdlaWdodD0iNjAwIiBmaWxsPSJ3aGl0ZSIgb3BhY2l0eT0iMC43MCIgdGV4dC1hbmNob3I9Im1pZGRsZSIgbGV0dGVyLXNwYWNpbmc9IjAuOCI+RElTVFJJQlVJRE9SQSBZIENPTUVSQ0lBTElaQURPUkE8L3RleHQ+Cjwvc3ZnPg=="
+_logo_html = (
+    f'<img src="data:image/svg+xml;base64,{_LOGO_SVG_B64}'     f' style="height:54px;object-fit:contain;" alt="Fanero SAC">'
+)
 
 st.set_page_config(page_title="Incentivo de Ventas", layout="wide", page_icon="🏆")
 
@@ -175,6 +199,43 @@ h2, h3 { color: #0A3A7A !important; font-weight: 700 !important; }
 [data-testid="column"] .element-container,
 [data-testid="stVerticalBlock"] > div.element-container {
     background: transparent !important;
+}
+
+/* ── Barra superior con logo ── */
+.logo-topbar {
+    display: flex;
+    align-items: center;
+    background: linear-gradient(90deg, #0A2A5E 0%, #0B5ED7 100%);
+    padding: 8px 20px;
+    border-radius: 10px;
+    margin-bottom: 12px;
+    box-shadow: 0 3px 12px rgba(0,33,71,0.25);
+    border-bottom: 2px solid #C9982A;
+}
+.logo-topbar span {
+    color: rgba(255,255,255,0.60);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    margin-left: 14px;
+    border-left: 1px solid rgba(255,255,255,0.25);
+    padding-left: 14px;
+}
+
+/* ── Barra superior logo ── */
+.logo-topbar {
+    display:flex; align-items:center;
+    background:linear-gradient(90deg,#0A2A5E 0%,#0B5ED7 100%);
+    padding:8px 20px; border-radius:10px; margin-bottom:12px;
+    box-shadow:0 3px 12px rgba(0,33,71,0.25);
+    border-bottom:2px solid #C9982A;
+}
+.logo-topbar .logo-sep {
+    color:rgba(255,255,255,0.55); font-size:11px; font-weight:600;
+    letter-spacing:1.2px; text-transform:uppercase;
+    margin-left:14px; border-left:1px solid rgba(255,255,255,0.20);
+    padding-left:14px;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -1002,6 +1063,23 @@ tab1, tab2, tab3, tab4 = st.tabs([
 # ============================================================================
 # TAB 1 — RESUMEN GENERAL
 # ============================================================================
+# ── Barra de logo superior ───────────────────────────────────────────────────
+st.markdown(
+    f'''<div class="logo-topbar">
+        {_logo_html}
+        <span>Sistema de Incentivos de Ventas</span>
+    </div>''',
+    unsafe_allow_html=True
+)
+
+st.markdown(
+    f'''<div class="logo-topbar">
+        {_logo_html}
+        <span class="logo-sep">Sistema de Incentivos de Ventas</span>
+    </div>''',
+    unsafe_allow_html=True
+)
+
 with tab1:
     # ── Header estilo Power BI ────────────────────────────────────────────────
     st.markdown("""
