@@ -852,6 +852,13 @@ def cargar_excel(fuente):
     return df_m, df_d
 
 # ── Sidebar ──────────────────────────────────────────────────────────────────
+st.sidebar.markdown(
+    f'''<div style="padding:10px 8px 14px 8px; text-align:center;
+                    border-bottom:1px solid rgba(201,152,42,0.35); margin-bottom:8px;">
+        {_logo_html}
+    </div>''',
+    unsafe_allow_html=True
+)
 st.sidebar.title("⚙️ Configuración")
 
 with st.sidebar.expander("🔐 Administrador"):
@@ -1078,14 +1085,6 @@ st.markdown(
     f'''<div class="logo-topbar">
         {_logo_html}
         <span>Sistema de Incentivos de Ventas</span>
-    </div>''',
-    unsafe_allow_html=True
-)
-
-st.markdown(
-    f'''<div class="logo-topbar">
-        {_logo_html}
-        <span class="logo-sep">Sistema de Incentivos de Ventas</span>
     </div>''',
     unsafe_allow_html=True
 )
@@ -1418,9 +1417,7 @@ with tab3:
         ("font-size", "13px"),
     ]
     st.dataframe(
-        pivot_h_disp.style
-            .apply(style_hoy, axis=None)
-            .set_properties(**{"background-color": "#F5F6FA", "color": "#0A2A5E"}),
+        pivot_h_disp.style.apply(style_hoy, axis=None),
         use_container_width=True
     )
 
