@@ -1396,8 +1396,3 @@ with tab4:
             )
         else:
             st.info("No hay registros. Ingresa tu DNI para registrar ventas.")
-v",
-                use_container_width=True,
-            )
-        else:
-            st.info("No hay registros guardados todavía. Ingresa tu DNI para registrar ventas.")
