@@ -1008,9 +1008,8 @@ with tab1:
     <div style="background:linear-gradient(135deg,#0A2A5E 0%,#0B5ED7 100%);
                 border-radius:12px; padding:22px 30px 18px 30px; margin-bottom:20px;
                 box-shadow:0 4px 16px rgba(31,56,100,0.25);">
-        <h1 style="color:white!important; margin:0; font-size:26px; font-weight:800;
-                   letter-spacing:-0.3px;">🏆 Dashboard Gerencial de Incentivos</h1>
-        <p style="color:rgba(255,255,255,0.75); margin:4px 0 0 0; font-size:13px;">
+        <p style="color:#FFFFFF; margin:0; font-size:26px; font-weight:800; letter-spacing:-0.3px;">🏆 Dashboard Gerencial de Incentivos</p>
+        <p style="color:#FFFFFF; margin:4px 0 0 0; font-size:13px;">
             Seguimiento de ventas · Ranking · Puntos por Producto
         </p>
     </div>
@@ -1174,8 +1173,7 @@ with tab2:
     <div style="background:linear-gradient(135deg,#0A2A5E 0%,#0B5ED7 100%);
                 border-radius:12px; padding:18px 30px 14px 30px; margin-bottom:20px;
                 box-shadow:0 4px 16px rgba(31,56,100,0.25);">
-        <h1 style="color:white!important; margin:0; font-size:22px; font-weight:800;">
-            📦 Detalle por Producto</h1>
+        <p style="color:#FFFFFF; margin:0; font-size:22px; font-weight:800;">📦 Detalle por Producto</p>
     </div>""", unsafe_allow_html=True)
 
     if "Producto" not in df_f.columns:
@@ -1242,8 +1240,7 @@ with tab3:
     <div style="background:linear-gradient(135deg,#0A2A5E 0%,#0B5ED7 100%);
                 border-radius:12px; padding:18px 30px 14px 30px; margin-bottom:20px;
                 box-shadow:0 4px 16px rgba(31,56,100,0.25);">
-        <h1 style="color:white!important; margin:0; font-size:22px; font-weight:800;">
-            📅 Seguimiento Diario de Ventas</h1>
+        <p style="color:#FFFFFF; margin:0; font-size:22px; font-weight:800;">📅 Seguimiento Diario de Ventas</p>
     </div>""", unsafe_allow_html=True)
 
     if df_diario.empty:
@@ -1446,9 +1443,8 @@ with tab4:
     <div style="background:linear-gradient(135deg,#0A2A5E 0%,#0B5ED7 100%);
                 border-radius:12px; padding:18px 30px 14px 30px; margin-bottom:20px;
                 box-shadow:0 4px 16px rgba(31,56,100,0.25);">
-        <h1 style="color:white!important; margin:0; font-size:22px; font-weight:800;">
-            📝 Registro Diario de Ventas</h1>
-        <p style="color:rgba(255,255,255,0.75); margin:4px 0 0 0; font-size:13px;">
+        <p style="color:#FFFFFF; margin:0; font-size:22px; font-weight:800;">📝 Registro Diario de Ventas</p>
+        <p style="color:#FFFFFF; margin:4px 0 0 0; font-size:13px;">
             Registra tus ventas del día · Los datos se guardan automáticamente y
             se integran al motor de puntos
         </p>
