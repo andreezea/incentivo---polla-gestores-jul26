@@ -15,16 +15,21 @@ st.set_page_config(page_title="Incentivo de Ventas", layout="wide", page_icon="�
 # ============================================================================
 st.markdown("""
 <style>
+/* ══════════════════════════════════════════════════
+   PALETA GERENCIAL — Oxford Navy + Royal Blue + Gold
+   ══════════════════════════════════════════════════ */
+
 /* ── Fondo general ── */
-.stApp { background-color: #EEF2F7; }
-.main .block-container { padding-top: 1.2rem; padding-bottom: 1rem; }
+.stApp { background-color: #F0F4FA; }
+.main .block-container { padding-top: 1rem; padding-bottom: 1rem; }
 
 /* ── Ocultar menú y footer de Streamlit ── */
 #MainMenu, footer, header { visibility: hidden; }
 
-/* ── Sidebar oscuro estilo Power BI ── */
+/* ── Sidebar ejecutivo oscuro ── */
 [data-testid="stSidebar"] {
-    background: linear-gradient(180deg, #1F3864 0%, #2E5FA3 100%);
+    background: linear-gradient(180deg, #002147 0%, #003580 60%, #00408A 100%);
+    border-right: 2px solid #C9982A;
 }
 [data-testid="stSidebar"] .stMarkdown,
 [data-testid="stSidebar"] label,
@@ -37,98 +42,145 @@ st.markdown("""
 }
 [data-testid="stSidebar"] .stSelectbox > div > div,
 [data-testid="stSidebar"] .stTextInput > div > div {
-    background-color: rgba(255,255,255,0.12);
-    border: 1px solid rgba(255,255,255,0.25);
+    background-color: rgba(255,255,255,0.10);
+    border: 1px solid rgba(201,152,42,0.45);
     color: white;
     border-radius: 6px;
 }
 [data-testid="stSidebar"] .stExpander {
-    background-color: rgba(255,255,255,0.08);
-    border: 1px solid rgba(255,255,255,0.18);
+    background-color: rgba(255,255,255,0.07);
+    border: 1px solid rgba(201,152,42,0.30);
     border-radius: 8px;
 }
+[data-testid="stSidebar"] .stButton > button {
+    background: rgba(201,152,42,0.18);
+    border: 1px solid #C9982A;
+    color: #FFD97A !important;
+    border-radius: 6px;
+    font-weight: 600;
+}
+[data-testid="stSidebar"] .stButton > button:hover {
+    background: rgba(201,152,42,0.35);
+}
 
-/* ── Tabs estilo Power BI ── */
+/* ── TABS — alto contraste gerencial ── */
 .stTabs [data-baseweb="tab-list"] {
-    gap: 6px;
-    background-color: #d5dce8;
-    padding: 5px 6px;
+    gap: 3px;
+    background: linear-gradient(90deg, #002147 0%, #003580 100%);
+    padding: 6px 8px;
     border-radius: 10px;
-    margin-bottom: 12px;
+    margin-bottom: 16px;
+    box-shadow: 0 3px 12px rgba(0,33,71,0.30);
 }
 .stTabs [data-baseweb="tab"] {
     border-radius: 7px;
-    color: #3A5080;
-    font-weight: 600;
-    font-size: 14px;
-    padding: 8px 22px;
-    background-color: transparent;
-    border: none;
+    color: rgba(255,255,255,0.80) !important;
+    font-weight: 700 !important;
+    font-size: 13px !important;
+    padding: 9px 20px !important;
+    background-color: transparent !important;
+    border: none !important;
+    letter-spacing: 0.2px;
+    transition: all 0.15s ease;
+}
+.stTabs [data-baseweb="tab"]:hover {
+    color: #FFD97A !important;
+    background-color: rgba(201,152,42,0.15) !important;
 }
 .stTabs [aria-selected="true"] {
-    background-color: #1F3864 !important;
-    color: white !important;
-    box-shadow: 0 2px 8px rgba(31,56,100,0.35);
+    background: linear-gradient(135deg, #C9982A 0%, #E8B84B 100%) !important;
+    color: #002147 !important;
+    font-weight: 800 !important;
+    box-shadow: 0 2px 10px rgba(201,152,42,0.50) !important;
 }
 
-/* ── KPI metric cards ── */
+/* ── KPI cards ejecutivas ── */
 [data-testid="metric-container"] {
-    background: white;
-    border-radius: 10px;
+    background: #FFFFFF;
+    border-radius: 12px;
     padding: 18px 20px 14px 20px;
-    box-shadow: 0 2px 10px rgba(31,56,100,0.10);
-    border-left: 5px solid #2E75B6;
+    box-shadow: 0 4px 16px rgba(0,33,71,0.10);
+    border-left: 5px solid #002147;
+    border-top: 1px solid #E8EDF5;
     min-height: 90px;
 }
 [data-testid="metric-label"] > div {
-    font-size: 12px !important;
-    color: #7A8DA8 !important;
-    font-weight: 600 !important;
+    font-size: 11px !important;
+    color: #8A9BB5 !important;
+    font-weight: 700 !important;
     text-transform: uppercase;
-    letter-spacing: 0.5px;
+    letter-spacing: 0.8px;
 }
 [data-testid="metric-value"] > div {
     font-size: 30px !important;
-    color: #1F3864 !important;
+    color: #002147 !important;
     font-weight: 800 !important;
 }
 [data-testid="metric-delta"] > div {
-    font-size: 13px !important;
-    font-weight: 600 !important;
+    font-size: 12px !important;
+    font-weight: 700 !important;
 }
 
 /* ── Títulos ── */
-h1 { color: #1F3864 !important; font-weight: 800 !important; letter-spacing: -0.5px; }
-h2, h3 { color: #2E5FA3 !important; font-weight: 700 !important; }
+h1 { color: #002147 !important; font-weight: 900 !important; letter-spacing: -0.8px; }
+h2, h3 { color: #003580 !important; font-weight: 700 !important; }
 
 /* ── DataFrames ── */
-[data-testid="stDataFrame"] { border-radius: 10px; overflow: hidden;
-    box-shadow: 0 2px 8px rgba(31,56,100,0.08); }
+[data-testid="stDataFrame"] {
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 2px 10px rgba(0,33,71,0.09);
+    border: 1px solid #DDE4EE;
+}
 
-/* ── Subheader divider ── */
+/* ── Subheader divisor gerencial ── */
 .section-header {
-    background: linear-gradient(90deg, #1F3864, #2E75B6);
-    color: white;
-    padding: 7px 16px;
+    background: linear-gradient(90deg, #002147 0%, #0057B8 80%, #0066CC 100%);
+    color: white !important;
+    padding: 7px 18px;
     border-radius: 6px;
     font-weight: 700;
-    font-size: 14px;
+    font-size: 13px;
     margin: 16px 0 10px 0;
-    letter-spacing: 0.3px;
+    letter-spacing: 0.5px;
+    border-left: 4px solid #C9982A;
 }
 
 /* ── Expander ── */
 [data-testid="stExpander"] {
     background: white;
     border-radius: 10px;
-    border: 1px solid #D5DCE8;
-    box-shadow: 0 1px 4px rgba(31,56,100,0.06);
+    border: 1px solid #DDE4EE;
+    box-shadow: 0 1px 6px rgba(0,33,71,0.06);
+}
+
+/* ── Botón primario ── */
+.stButton > button[kind="primary"] {
+    background: linear-gradient(135deg, #002147, #0057B8) !important;
+    color: white !important;
+    border: none !important;
+    border-radius: 8px !important;
+    font-weight: 700 !important;
+    box-shadow: 0 3px 10px rgba(0,33,71,0.25) !important;
+}
+.stButton > button[kind="primary"]:hover {
+    background: linear-gradient(135deg, #003580, #0066CC) !important;
+    box-shadow: 0 4px 14px rgba(0,33,71,0.35) !important;
 }
 </style>
 """, unsafe_allow_html=True)
 
-# Paleta de colores Power BI para gráficos
-PALETA = ["#1F3864", "#2E75B6", "#54B4AE", "#BDD7EE", "#F4C430", "#E45756", "#54A24B", "#F58518"]
+# ── Paleta gerencial para gráficos ───────────────────────────────────────────
+PALETA = [
+    "#002147",  # Oxford Navy
+    "#0057B8",  # Royal Blue
+    "#C9982A",  # Executive Gold
+    "#1B7A4E",  # Forest Green
+    "#A63228",  # Executive Red
+    "#4A5FA8",  # Steel Blue
+    "#2E8B8B",  # Teal
+    "#7B4EA8",  # Corporate Purple
+]
 
 def subheader(texto):
     """Encabezado de sección estilo Power BI."""
@@ -614,11 +666,15 @@ with st.sidebar.expander("🔐 Administrador"):
         archivo_subido = st.file_uploader("📤 Cargar datos (.xlsx)", type=["xlsx"])
 
         if archivo_subido:
-            # Guardar en disco para que todos los usuarios vean los datos actualizados
             bytes_data = archivo_subido.read()
             with open(DATA_PATH, "wb") as f:
                 f.write(bytes_data)
             st.success("✅ Datos guardados — todos los usuarios verán la actualización")
+
+        st.markdown("---")
+        if st.button("🔓 Cerrar sesión", key="logout_btn", use_container_width=True):
+            st.session_state["admin_pwd"] = ""
+            st.rerun()
     else:
         archivo_subido = None
 
@@ -803,7 +859,7 @@ tab1, tab2, tab3, tab4 = st.tabs([
 with tab1:
     # ── Header estilo Power BI ────────────────────────────────────────────────
     st.markdown("""
-    <div style="background:linear-gradient(135deg,#1F3864 0%,#2E75B6 100%);
+    <div style="background:linear-gradient(135deg,#002147 0%,#0057B8 100%);
                 border-radius:12px; padding:22px 30px 18px 30px; margin-bottom:20px;
                 box-shadow:0 4px 16px rgba(31,56,100,0.25);">
         <h1 style="color:white!important; margin:0; font-size:26px; font-weight:800;
@@ -964,7 +1020,7 @@ with tab1:
 # ============================================================================
 with tab2:
     st.markdown("""
-    <div style="background:linear-gradient(135deg,#1F3864 0%,#2E75B6 100%);
+    <div style="background:linear-gradient(135deg,#002147 0%,#0057B8 100%);
                 border-radius:12px; padding:18px 30px 14px 30px; margin-bottom:20px;
                 box-shadow:0 4px 16px rgba(31,56,100,0.25);">
         <h1 style="color:white!important; margin:0; font-size:22px; font-weight:800;">
@@ -1032,7 +1088,7 @@ with tab2:
 # ============================================================================
 with tab3:
     st.markdown("""
-    <div style="background:linear-gradient(135deg,#1F3864 0%,#2E75B6 100%);
+    <div style="background:linear-gradient(135deg,#002147 0%,#0057B8 100%);
                 border-radius:12px; padding:18px 30px 14px 30px; margin-bottom:20px;
                 box-shadow:0 4px 16px rgba(31,56,100,0.25);">
         <h1 style="color:white!important; margin:0; font-size:22px; font-weight:800;">
@@ -1184,7 +1240,7 @@ with tab3:
 with tab4:
     # ── Header banner ────────────────────────────────────────────────────────
     st.markdown("""
-    <div style="background:linear-gradient(135deg,#1F3864 0%,#2E75B6 100%);
+    <div style="background:linear-gradient(135deg,#002147 0%,#0057B8 100%);
                 border-radius:12px; padding:18px 30px 14px 30px; margin-bottom:20px;
                 box-shadow:0 4px 16px rgba(31,56,100,0.25);">
         <h1 style="color:white!important; margin:0; font-size:22px; font-weight:800;">
