@@ -16,7 +16,7 @@ st.set_page_config(page_title="Incentivo de Ventas", layout="wide", page_icon="�
 st.markdown("""
 <style>
 /* ══════════════════════════════════════════════════
-   PALETA GERENCIAL — Oxford Navy + Royal Blue + Gold
+   PALETA PRO — Azul Corporativo + Verde/Amarillo/Rojo Rendimiento
    ══════════════════════════════════════════════════ */
 
 /* ── Fondo general ── */
@@ -28,7 +28,7 @@ st.markdown("""
 
 /* ── Sidebar ejecutivo oscuro ── */
 [data-testid="stSidebar"] {
-    background: linear-gradient(180deg, #002147 0%, #003580 60%, #00408A 100%);
+    background: linear-gradient(180deg, #0A2A5E 0%, #0A3A7A 60%, #0A4A8A 100%);
     border-right: 2px solid #C9982A;
 }
 [data-testid="stSidebar"] .stMarkdown,
@@ -66,7 +66,7 @@ st.markdown("""
 /* ── TABS — alto contraste gerencial ── */
 .stTabs [data-baseweb="tab-list"] {
     gap: 3px;
-    background: linear-gradient(90deg, #002147 0%, #003580 100%);
+    background: linear-gradient(90deg, #0A2A5E 0%, #0A3A7A 100%);
     padding: 6px 8px;
     border-radius: 10px;
     margin-bottom: 16px;
@@ -89,14 +89,14 @@ st.markdown("""
 }
 .stTabs [aria-selected="true"] {
     background: linear-gradient(135deg, #C9982A 0%, #E8B84B 100%) !important;
-    color: #002147 !important;
+    color: #0A2A5E !important;
     font-weight: 800 !important;
     box-shadow: 0 2px 10px rgba(201,152,42,0.50) !important;
 }
 
 /* ── KPI cards ejecutivas — fondo azul corporativo, texto blanco ── */
 [data-testid="metric-container"] {
-    background: linear-gradient(135deg, #002147 0%, #0057B8 100%);
+    background: linear-gradient(135deg, #0A2A5E 0%, #0B5ED7 100%);
     border-radius: 12px;
     padding: 18px 20px 14px 20px;
     box-shadow: 0 4px 18px rgba(0,33,71,0.30);
@@ -123,8 +123,8 @@ st.markdown("""
 }
 
 /* ── Títulos ── */
-h1 { color: #002147 !important; font-weight: 900 !important; letter-spacing: -0.8px; }
-h2, h3 { color: #003580 !important; font-weight: 700 !important; }
+h1 { color: #0A2A5E !important; font-weight: 900 !important; letter-spacing: -0.8px; }
+h2, h3 { color: #0A3A7A !important; font-weight: 700 !important; }
 
 /* ── DataFrames ── */
 [data-testid="stDataFrame"] {
@@ -136,7 +136,7 @@ h2, h3 { color: #003580 !important; font-weight: 700 !important; }
 
 /* ── Subheader divisor gerencial ── */
 .section-header {
-    background: linear-gradient(90deg, #002147 0%, #0057B8 80%, #0066CC 100%);
+    background: linear-gradient(90deg, #0A2A5E 0%, #0B5ED7 80%, #1565C0 100%);
     color: white !important;
     padding: 7px 18px;
     border-radius: 6px;
@@ -157,7 +157,7 @@ h2, h3 { color: #003580 !important; font-weight: 700 !important; }
 
 /* ── Botón primario ── */
 .stButton > button[kind="primary"] {
-    background: linear-gradient(135deg, #002147, #0057B8) !important;
+    background: linear-gradient(135deg, #0A2A5E, #0B5ED7) !important;
     color: white !important;
     border: none !important;
     border-radius: 8px !important;
@@ -165,7 +165,7 @@ h2, h3 { color: #003580 !important; font-weight: 700 !important; }
     box-shadow: 0 3px 10px rgba(0,33,71,0.25) !important;
 }
 .stButton > button[kind="primary"]:hover {
-    background: linear-gradient(135deg, #003580, #0066CC) !important;
+    background: linear-gradient(135deg, #0A3A7A, #1565C0) !important;
     box-shadow: 0 4px 14px rgba(0,33,71,0.35) !important;
 }
 </style>
@@ -173,11 +173,11 @@ h2, h3 { color: #003580 !important; font-weight: 700 !important; }
 
 # ── Paleta gerencial para gráficos ───────────────────────────────────────────
 PALETA = [
-    "#002147",  # Oxford Navy
-    "#0057B8",  # Royal Blue
+    "#0A2A5E",  # Azul oscuro
+    "#0B5ED7",  # Azul principal
     "#C9982A",  # Executive Gold
-    "#1B7A4E",  # Forest Green
-    "#A63228",  # Executive Red
+    "#198754",  # Verde rendimiento
+    "#DC3545",  # Rojo rendimiento
     "#4A5FA8",  # Steel Blue
     "#2E8B8B",  # Teal
     "#7B4EA8",  # Corporate Purple
@@ -187,7 +187,7 @@ def subheader(texto):
     """Encabezado de sección estilo Power BI."""
     st.markdown(f'<div class="section-header">{texto}</div>', unsafe_allow_html=True)
 
-def kpi_card(col, label, value, delta=None, color="#0057B8"):
+def kpi_card(col, label, value, delta=None, color="#0B5ED7"):
     """KPI card con fondo azul corporativo y texto blanco."""
     delta_html = ""
     if delta is not None:
@@ -196,7 +196,7 @@ def kpi_card(col, label, value, delta=None, color="#0057B8"):
         delta_html = (f'<p style="font-size:12px; color:{"#7DFFB3" if is_pos else "#FFB3B3"};'
                       f' font-weight:700; margin:4px 0 0 0;">{s}</p>')
     col.markdown(f"""
-    <div style="background:linear-gradient(135deg,#002147 0%,{color} 100%);
+    <div style="background:linear-gradient(135deg,#0A2A5E 0%,{color} 100%);
                 border-radius:12px; padding:18px 20px 14px 20px;
                 box-shadow:0 4px 18px rgba(0,33,71,0.28);
                 border-left:5px solid #C9982A; min-height:90px; margin-bottom:4px;">
@@ -976,7 +976,7 @@ tab1, tab2, tab3, tab4 = st.tabs([
 with tab1:
     # ── Header estilo Power BI ────────────────────────────────────────────────
     st.markdown("""
-    <div style="background:linear-gradient(135deg,#002147 0%,#0057B8 100%);
+    <div style="background:linear-gradient(135deg,#0A2A5E 0%,#0B5ED7 100%);
                 border-radius:12px; padding:22px 30px 18px 30px; margin-bottom:20px;
                 box-shadow:0 4px 16px rgba(31,56,100,0.25);">
         <h1 style="color:white!important; margin:0; font-size:26px; font-weight:800;
@@ -994,11 +994,11 @@ with tab1:
     cumpl_prom = df_gestor["Cumplimiento_%"].mean()
 
     k1, k2, k3, k4, k5 = st.columns(5)
-    kpi_card(k1, "Gestores",              str(df_gestor["Gestor"].nunique()),       color="#1F3864")
+    kpi_card(k1, "Gestores",              str(df_gestor["Gestor"].nunique()),       color="#0A2A5E")
     kpi_card(k2, "Cumplimiento Promedio", f"{cumpl_prom:.0f}%",
-             delta=("🟢 Sobre meta" if cumpl_prom >= 100 else "🔴 Bajo meta"),       color="#2E75B6")
-    kpi_card(k3, "Total Puntos",          f"{int(df_gestor['Total_Puntos'].sum()):,}", color="#54B4AE")
-    kpi_card(k4, "Ventas del Mes",        f"{int(v_act):,}",                         color="#2E75B6")
+             delta=("🟢 Sobre meta" if cumpl_prom >= 100 else "🔴 Bajo meta"),       color="#0B5ED7")
+    kpi_card(k3, "Total Puntos",          f"{int(df_gestor['Total_Puntos'].sum()):,}", color="#0B5ED7")
+    kpi_card(k4, "Ventas del Mes",        f"{int(v_act):,}",                         color="#0B5ED7")
     kpi_card(k5, "Variación vs Mes Ant.", f"{var:+.1f}%",
              delta=("▲ Crecimiento" if var >= 0 else "▼ Caída"),
              color="#27AE60" if var >= 0 else "#E45756")
@@ -1008,20 +1008,20 @@ with tab1:
     # ── Puntos sistema base + motor (2 filas de KPIs pequeños) ───────────────
     subheader("📌 Sistema Base de Puntos")
     b1, b2, b3, sp1 = st.columns([1,1,1,1])
-    kpi_card(b1, "Puntos Cuota",       str(int(df_gestor["Puntos_Base"].sum())),    color="#1F3864")
-    kpi_card(b2, "Puntos Diario Base", str(int(df_gestor["Puntos_Diario"].sum())),  color="#2E75B6")
-    kpi_card(b3, "Puntos Crecimiento", str(int(df_gestor["Puntos_Crec"].sum())),    color="#54B4AE")
+    kpi_card(b1, "Puntos Cuota",       str(int(df_gestor["Puntos_Base"].sum())),    color="#0A2A5E")
+    kpi_card(b2, "Puntos Diario Base", str(int(df_gestor["Puntos_Diario"].sum())),  color="#0B5ED7")
+    kpi_card(b3, "Puntos Crecimiento", str(int(df_gestor["Puntos_Crec"].sum())),    color="#0B5ED7")
     sp1.markdown("")
 
     st.markdown("<div style='margin-top:14px'></div>", unsafe_allow_html=True)
     subheader("🆕 Motor por Producto")
     n1, n2, n3, n4, n5, n6 = st.columns(6)
-    kpi_card(n1, "Diario",   str(int(df_gestor["PD_Diario"].sum())),  color="#1F3864")
-    kpi_card(n2, "Extra",    str(int(df_gestor["PD_Extra"].sum())),   color="#2E75B6")
-    kpi_card(n3, "Semanal",  str(int(df_gestor["PD_Semanal"].sum())), color="#54B4AE")
-    kpi_card(n4, "Mensual",  str(int(df_gestor["PD_Mensual"].sum())), color="#1F3864")
-    kpi_card(n5, "Mes Ant.", str(int(df_gestor["PD_MesAnt"].sum())),  color="#2E75B6")
-    kpi_card(n6, "UR",       str(int(df_gestor["PD_UR"].sum())),      color="#27AE60")
+    kpi_card(n1, "Diario",   str(int(df_gestor["PD_Diario"].sum())),  color="#0A2A5E")
+    kpi_card(n2, "Extra",    str(int(df_gestor["PD_Extra"].sum())),   color="#0B5ED7")
+    kpi_card(n3, "Semanal",  str(int(df_gestor["PD_Semanal"].sum())), color="#0B5ED7")
+    kpi_card(n4, "Mensual",  str(int(df_gestor["PD_Mensual"].sum())), color="#0A2A5E")
+    kpi_card(n5, "Mes Ant.", str(int(df_gestor["PD_MesAnt"].sum())),  color="#0B5ED7")
+    kpi_card(n6, "UR",       str(int(df_gestor["PD_UR"].sum())),      color="#198754")
 
     st.markdown("<div style='margin-top:20px'></div>", unsafe_allow_html=True)
 
@@ -1105,14 +1105,14 @@ with tab1:
         fig_pie = px.pie(
             sem, names="Estado", values="Cantidad", hole=0.55,
             color="Estado",
-            color_discrete_map={"🟢 Verde":"#27AE60","🟡 Amarillo":"#F4D03F","🔴 Rojo":"#E45756"}
+            color_discrete_map={"🟢 Verde":"#198754","🟡 Amarillo":"#FFC107","🔴 Rojo":"#DC3545"}
         )
         fig_pie.update_traces(textinfo="label+percent", textfont_size=12)
         fig_pie.update_layout(
             showlegend=False, paper_bgcolor="white",
             margin=dict(l=10, r=10, t=20, b=10),
             annotations=[dict(text="Estado", x=0.5, y=0.5,
-                              font=dict(size=14, color="#1F3864"), showarrow=False)]
+                              font=dict(size=14, color="#0A2A5E"), showarrow=False)]
         )
         st.plotly_chart(fig_pie, use_container_width=True)
 
@@ -1137,7 +1137,7 @@ with tab1:
 # ============================================================================
 with tab2:
     st.markdown("""
-    <div style="background:linear-gradient(135deg,#002147 0%,#0057B8 100%);
+    <div style="background:linear-gradient(135deg,#0A2A5E 0%,#0B5ED7 100%);
                 border-radius:12px; padding:18px 30px 14px 30px; margin-bottom:20px;
                 box-shadow:0 4px 16px rgba(31,56,100,0.25);">
         <h1 style="color:white!important; margin:0; font-size:22px; font-weight:800;">
@@ -1205,7 +1205,7 @@ with tab2:
 # ============================================================================
 with tab3:
     st.markdown("""
-    <div style="background:linear-gradient(135deg,#002147 0%,#0057B8 100%);
+    <div style="background:linear-gradient(135deg,#0A2A5E 0%,#0B5ED7 100%);
                 border-radius:12px; padding:18px 30px 14px 30px; margin-bottom:20px;
                 box-shadow:0 4px 16px rgba(31,56,100,0.25);">
         <h1 style="color:white!important; margin:0; font-size:22px; font-weight:800;">
@@ -1406,7 +1406,7 @@ with tab3:
 with tab4:
     # ── Header banner ────────────────────────────────────────────────────────
     st.markdown("""
-    <div style="background:linear-gradient(135deg,#002147 0%,#0057B8 100%);
+    <div style="background:linear-gradient(135deg,#0A2A5E 0%,#0B5ED7 100%);
                 border-radius:12px; padding:18px 30px 14px 30px; margin-bottom:20px;
                 box-shadow:0 4px 16px rgba(31,56,100,0.25);">
         <h1 style="color:white!important; margin:0; font-size:22px; font-weight:800;">
@@ -1467,7 +1467,7 @@ with tab4:
         else:
             with st.form("form_registro_diario", clear_on_submit=True):
                 st.markdown(f"""
-                <div style="background:linear-gradient(135deg,#002147 0%,#0057B8 100%);
+                <div style="background:linear-gradient(135deg,#0A2A5E 0%,#0B5ED7 100%);
                             border-radius:6px; padding:8px 14px; margin-bottom:10px;
                             border-left:4px solid #C9982A;">
                     <span style="font-size:14px; color:#FFFFFF; font-weight:700;">
@@ -1531,7 +1531,7 @@ with tab4:
                 for _, row in hoy_grp.iterrows():
                     color = PALETA[PRODUCTOS_ORDEN.index(row["producto"]) % len(PALETA)]
                     st.markdown(f"""
-                    <div style="background:linear-gradient(135deg,#002147 0%,{color} 100%);
+                    <div style="background:linear-gradient(135deg,#0A2A5E 0%,{color} 100%);
                                 border-radius:8px; padding:10px 16px; margin-bottom:8px;
                                 border-left:4px solid #C9982A;
                                 box-shadow:0 3px 10px rgba(0,33,71,0.20);">
