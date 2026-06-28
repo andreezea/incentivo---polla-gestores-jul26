@@ -1265,11 +1265,14 @@ with tab3:
     cp_hoy = (v_hoy / c_hoy * 100) if c_hoy else 0
     emoji_hoy = "🟢" if cp_hoy >= 100 else ("🟡" if cp_hoy >= 80 else "🔴")
 
-    k1, k2, k3, k4 = st.columns(4)
-    k1.metric("📅 Último día",    str(ultimo_dia)[:10])
-    k2.metric("Venta Total",      f"{v_hoy:.0f}")
-    k3.metric("Cuota Total",      f"{c_hoy:.0f}")
-    k4.metric(f"{emoji_hoy} Cumpl. del Día", f"{cp_hoy:.0f}%")
+    render_kpi_row([
+        {"label":"📅 Último día",       "value": str(ultimo_dia)[:10],   "color":"#0A2A5E"},
+        {"label":"Venta Total",         "value": f"{v_hoy:.0f}",         "color":"#0B5ED7"},
+        {"label":"Cuota Total",         "value": f"{c_hoy:.0f}",         "color":"#0B5ED7"},
+        {"label":f"{emoji_hoy} Cumpl. del Día",
+         "value": f"{cp_hoy:.0f}%",
+         "color":"#198754" if cp_hoy >= 100 else ("#B45309" if cp_hoy >= 80 else "#DC3545")},
+    ])
 
     st.markdown("<div style='margin-top:12px'></div>", unsafe_allow_html=True)
 
