@@ -672,9 +672,11 @@ with st.sidebar.expander("🔐 Administrador"):
             st.success("✅ Datos guardados — todos los usuarios verán la actualización")
 
         st.markdown("---")
-        if st.button("🔓 Cerrar sesión", key="logout_btn", use_container_width=True):
-            st.session_state["admin_pwd"] = ""
-            st.rerun()
+        def _cerrar_sesion():
+            if "admin_pwd" in st.session_state:
+                del st.session_state["admin_pwd"]
+        st.button("🔓 Cerrar sesión", key="logout_btn",
+                  on_click=_cerrar_sesion, use_container_width=True)
     else:
         archivo_subido = None
 
