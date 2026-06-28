@@ -437,9 +437,11 @@ def datos_demo():
 # Primario: CSV en disco (persiste entre sesiones en servidores).
 # Fallback: st.session_state (persiste en la sesión actual).
 # ============================================================================
-CSV_PATH = "ventas_registro.csv"
-_CSV_COLS = ["id","timestamp","gestor","departamento",
+CSV_PATH  = "ventas_registro.csv"
+DNI_PATH  = "gestores_dni.csv"
+_CSV_COLS = ["id","timestamp","dni","gestor","departamento",
              "producto","fecha","venta_dia","cuota_diaria"]
+_DNI_COLS = ["dni","gestor","departamento"]
 
 def _df_vacio():
     return pd.DataFrame(columns=_CSV_COLS)
@@ -470,7 +472,8 @@ def _guardar_csv(df: pd.DataFrame):
     except Exception:
         pass  # Streamlit Cloud sin permisos de escritura → solo session_state
 
-def insertar_registro_db(gestor, departamento, producto, fecha, venta_dia, cuota_diaria):
+def insertar_registro_db(gestor, departamento, producto, fecha,
+                         venta_dia, cuota_diaria, dni=""):
     """Agrega un registro nuevo (append-only)."""
     from datetime import datetime
     ts  = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -479,7 +482,7 @@ def insertar_registro_db(gestor, departamento, producto, fecha, venta_dia, cuota
                                        and pd.notna(df["id"].max())) else 1
     nueva = pd.DataFrame([{
         "id": nid, "timestamp": ts,
-        "gestor": gestor, "departamento": departamento,
+        "dni": str(dni), "gestor": gestor, "departamento": departamento,
         "producto": producto, "fecha": str(fecha),
         "venta_dia": float(venta_dia), "cuota_diaria": float(cuota_diaria),
     }])
@@ -531,6 +534,41 @@ def db_a_diario(df_raw: pd.DataFrame) -> pd.DataFrame:
     agg.columns = ["Gestor","Departamento","Producto","Fecha","Venta_Dia","CuotaDiaria"]
     agg["Fecha"] = pd.to_datetime(agg["Fecha"])
     return agg
+
+# ============================================================================
+# GESTIÓN DNI — mapeo DNI → Gestor
+# ============================================================================
+def cargar_dni_map() -> dict:
+    """Devuelve {dni: {gestor, departamento}} desde CSV o session_state."""
+    if os.path.exists(DNI_PATH):
+        try:
+            df = pd.read_csv(DNI_PATH, dtype=str).fillna("")
+            mapa = {str(r["dni"]).strip(): {"gestor": r["gestor"],
+                                             "departamento": r["departamento"]}
+                    for _, r in df.iterrows()}
+            st.session_state["_dni_map"] = mapa
+            return mapa
+        except Exception:
+            pass
+    return st.session_state.get("_dni_map", {})
+
+def guardar_dni_map(mapa: dict):
+    """Guarda el mapa DNI en CSV y session_state."""
+    st.session_state["_dni_map"] = mapa
+    rows = [{"dni": k, "gestor": v["gestor"], "departamento": v["departamento"]}
+            for k, v in mapa.items()]
+    df = pd.DataFrame(rows, columns=_DNI_COLS)
+    try:
+        df.to_csv(DNI_PATH, index=False)
+    except Exception:
+        pass
+
+def buscar_por_dni(dni: str):
+    """Retorna (gestor, departamento) o (None, '') si no existe."""
+    info = cargar_dni_map().get(str(dni).strip())
+    if info:
+        return info["gestor"], info["departamento"]
+    return None, ""
 
 # ============================================================================
 # CARGA DE DATOS
@@ -603,6 +641,55 @@ else:
     df_raw, df_diario = datos_demo()
     if es_admin:
         st.sidebar.info("No hay datos guardados. Sube tu Excel para activarlos.")
+
+# ── Gestión DNI en el sidebar (solo admin, requiere df_raw) ──────────────────
+_depto_map_sb = (df_raw.drop_duplicates("Gestor").set_index("Gestor")["Departamento"].to_dict()
+                 if "Gestor" in df_raw.columns and "Departamento" in df_raw.columns else {})
+_gestores_sb  = sorted(df_raw["Gestor"].unique().tolist()) if "Gestor" in df_raw.columns else []
+
+with st.sidebar.expander("👥 Gestores · DNI"):
+    if not es_admin:
+        st.info("Solo el administrador puede gestionar DNIs.")
+    else:
+        mapa_dni = cargar_dni_map()
+        if mapa_dni:
+            df_mapa_sb = pd.DataFrame(
+                [{"DNI": k, "Nombre": v["gestor"], "Depto": v["departamento"]}
+                 for k, v in mapa_dni.items()])
+            st.dataframe(df_mapa_sb, hide_index=True, use_container_width=True)
+        else:
+            st.caption("Sin gestores registrados aún.")
+
+        st.markdown("**Agregar gestor**")
+        sb_dni  = st.text_input("DNI", key="sb_dni_add", max_chars=15)
+        if _gestores_sb:
+            sb_gst  = st.selectbox("Gestor", _gestores_sb, key="sb_gst_add")
+            sb_dept = _depto_map_sb.get(sb_gst, "")
+            st.caption(f"Departamento: {sb_dept}")
+        else:
+            sb_gst  = st.text_input("Gestor", key="sb_gst_txt")
+            sb_dept = st.text_input("Departamento", key="sb_dept_txt")
+
+        if st.button("➕ Agregar gestor", key="btn_add_dni_sb"):
+            if sb_dni.strip() and sb_gst:
+                mapa_dni[sb_dni.strip()] = {"gestor": sb_gst, "departamento": sb_dept}
+                guardar_dni_map(mapa_dni)
+                st.success(f"✅ {sb_gst} · DNI {sb_dni.strip()}")
+                st.rerun()
+            else:
+                st.error("Completa DNI y nombre.")
+
+        if mapa_dni:
+            st.markdown("**Eliminar gestor**")
+            dni_quitar = st.selectbox(
+                "DNI a quitar",
+                list(mapa_dni.keys()),
+                format_func=lambda d: f"{d} — {mapa_dni[d]['gestor']}",
+                key="dni_quitar_sb")
+            if st.button("🗑️ Quitar", key="btn_del_dni_sb"):
+                del mapa_dni[dni_quitar]
+                guardar_dni_map(mapa_dni)
+                st.rerun()
 
 if not df_diario.empty:
     try:
@@ -1108,87 +1195,119 @@ with tab4:
         </p>
     </div>""", unsafe_allow_html=True)
 
+    # ── Identificación por DNI (fuera del form para reactividad) ────────────
+    subheader("🪪 Identificación")
+    dni_col, info_col = st.columns([2, 3])
+
+    with dni_col:
+        dni_input = st.text_input(
+            "Ingresa tu DNI",
+            max_chars=15,
+            placeholder="Ej: 12345678",
+            key="dni_ingreso",
+        )
+
+    gestor_activo = None
+    depto_activo  = ""
+
+    if dni_input:
+        gestor_activo, depto_activo = buscar_por_dni(dni_input.strip())
+        with info_col:
+            if gestor_activo:
+                st.markdown(f"""
+                <div style="background:#E8F5E9; border-radius:8px; padding:12px 16px;
+                            border-left:5px solid #27AE60; margin-top:26px;">
+                    <span style="font-size:11px; color:#1B7A3E; font-weight:700;
+                                 text-transform:uppercase;">✅ DNI verificado</span><br>
+                    <span style="font-size:22px; color:#1F3864; font-weight:800;">
+                        {gestor_activo}</span><br>
+                    <span style="font-size:12px; color:#7A8DA8;">{depto_activo}</span>
+                </div>""", unsafe_allow_html=True)
+            else:
+                st.markdown("""
+                <div style="background:#FFF3CD; border-radius:8px; padding:12px 16px;
+                            border-left:5px solid #F4C430; margin-top:26px;">
+                    <span style="font-size:11px; color:#856404; font-weight:700;
+                                 text-transform:uppercase;">⚠️ DNI no encontrado</span><br>
+                    <span style="font-size:13px; color:#555;">
+                        Contacta al administrador para registrar tu DNI.</span>
+                </div>""", unsafe_allow_html=True)
+
+    st.markdown("<div style='margin-top:12px'></div>", unsafe_allow_html=True)
     col_form, col_hoy = st.columns([3, 2])
 
     # ── Formulario de carga ───────────────────────────────────────────────────
     with col_form:
         subheader("📋 Nueva Venta")
 
-        gestores_validos = (sorted(df_raw["Gestor"].unique().tolist())
-                            if "Gestor" in df_raw.columns else [])
-        depto_map = {}
-        if "Gestor" in df_raw.columns and "Departamento" in df_raw.columns:
-            depto_map = (df_raw.drop_duplicates("Gestor")
-                               .set_index("Gestor")["Departamento"].to_dict())
+        if not gestor_activo:
+            st.info("👆 Ingresa tu DNI arriba para habilitar el formulario de registro.")
+        else:
+            with st.form("form_registro_diario", clear_on_submit=True):
+                # Nombre visible pero no editable
+                st.markdown(f"""
+                <div style="background:#F0F4FA; border-radius:6px; padding:8px 14px;
+                            margin-bottom:10px; font-size:14px; color:#1F3864;">
+                    👤 <strong>{gestor_activo}</strong>
+                    <span style="color:#7A8DA8; font-size:12px;"> · {depto_activo}</span>
+                </div>""", unsafe_allow_html=True)
 
-        with st.form("form_registro_diario", clear_on_submit=True):
-            r1c1, r1c2 = st.columns(2)
+                r1c1, r1c2 = st.columns(2)
+                producto_sel_f = r1c1.selectbox("📦 Producto *", PRODUCTOS_ORDEN)
+                fecha_f        = r1c2.date_input("📅 Fecha", value=date.today())
+                ventas_f       = st.number_input(
+                    "🛒 Unidades vendidas *", min_value=0, step=1, value=0)
 
-            if gestores_validos:
-                gestor_sel_f = r1c1.selectbox("👤 Gestor *", gestores_validos)
-            else:
-                gestor_sel_f = r1c1.text_input("👤 Gestor *", placeholder="Tu nombre completo")
+                submitted_f = st.form_submit_button(
+                    "💾  Guardar Registro", use_container_width=True, type="primary")
 
-            producto_sel_f = r1c2.selectbox("📦 Producto *", PRODUCTOS_ORDEN)
-
-            r2c1, r2c2 = st.columns(2)
-            fecha_f  = r2c1.date_input("📅 Fecha", value=date.today())
-            ventas_f = r2c2.number_input("🛒 Unidades vendidas *", min_value=0, step=1, value=0)
-
-            submitted_f = st.form_submit_button(
-                "💾  Guardar Registro", use_container_width=True, type="primary")
-
-            if submitted_f:
-                if not str(gestor_sel_f).strip():
-                    st.error("⚠️ El campo Gestor es obligatorio.")
-                elif ventas_f == 0:
-                    st.warning("⚠️ Ingresaste 0 ventas. ¿Seguro que quieres guardar?")
-                else:
-                    depto_f = depto_map.get(gestor_sel_f, "")
-
-                    cuota_d_f = 0.0
-                    if "Gestor" in df_raw.columns:
-                        mask_c = ((df_raw["Gestor"] == gestor_sel_f) &
-                                  (df_raw["Producto"] == producto_sel_f))
-                        if mask_c.any():
-                            row_c = df_raw[mask_c].iloc[0]
-                            if "CuotaDiaria" in row_c and pd.notna(row_c["CuotaDiaria"]):
-                                cuota_d_f = float(row_c["CuotaDiaria"])
-                            elif "Cuota" in row_c:
-                                cuota_d_f = float(row_c["Cuota"]) / 22
-
-                    es_dup = existe_registro_db(gestor_sel_f, producto_sel_f, str(fecha_f))
-
-                    insertar_registro_db(
-                        gestor=gestor_sel_f,
-                        departamento=depto_f,
-                        producto=producto_sel_f,
-                        fecha=str(fecha_f),
-                        venta_dia=float(ventas_f),
-                        cuota_diaria=cuota_d_f,
-                    )
-
-                    if es_dup:
-                        st.warning(
-                            f"⚠️ Ya tenías un registro para **{gestor_sel_f}** / "
-                            f"**{producto_sel_f}** el {fecha_f}. "
-                            "Se sumó el nuevo registro al acumulado del día."
-                        )
+                if submitted_f:
+                    if ventas_f == 0:
+                        st.warning("⚠️ Ingresaste 0 ventas. ¿Seguro que quieres guardar?")
                     else:
-                        st.success(
-                            f"✅ Guardado · **{gestor_sel_f}** · {producto_sel_f} · "
-                            f"{int(ventas_f)} unidades · {fecha_f}"
-                        )
-                    st.rerun()
+                        cuota_d_f = 0.0
+                        if "Gestor" in df_raw.columns:
+                            mask_c = ((df_raw["Gestor"] == gestor_activo) &
+                                      (df_raw["Producto"] == producto_sel_f))
+                            if mask_c.any():
+                                row_c = df_raw[mask_c].iloc[0]
+                                if "CuotaDiaria" in row_c and pd.notna(row_c["CuotaDiaria"]):
+                                    cuota_d_f = float(row_c["CuotaDiaria"])
+                                elif "Cuota" in row_c:
+                                    cuota_d_f = float(row_c["Cuota"]) / 22
 
-    # ── Resumen de hoy ────────────────────────────────────────────────────────
+                        es_dup = existe_registro_db(gestor_activo, producto_sel_f, str(fecha_f))
+
+                        insertar_registro_db(
+                            gestor=gestor_activo,
+                            departamento=depto_activo,
+                            producto=producto_sel_f,
+                            fecha=str(fecha_f),
+                            venta_dia=float(ventas_f),
+                            cuota_diaria=cuota_d_f,
+                            dni=dni_input.strip(),
+                        )
+
+                        if es_dup:
+                            st.warning(
+                                f"⚠️ Ya tenías un registro de **{producto_sel_f}** "
+                                f"el {fecha_f}. Se sumó al acumulado del día.")
+                        else:
+                            st.success(
+                                f"✅ Guardado · {producto_sel_f} · "
+                                f"{int(ventas_f)} unidades · {fecha_f}")
+                        st.rerun()
+
+    # ── Resumen de hoy (filtrado por gestor si está identificado) ─────────────
     with col_hoy:
         subheader(f"📊 Hoy — {date.today().strftime('%d/%m/%Y')}")
         df_db_hoy = cargar_registros_db()
         hoy_str   = str(date.today())
 
         if not df_db_hoy.empty:
-            hoy_rows = df_db_hoy[df_db_hoy["fecha"] == hoy_str]
+            hoy_rows = df_db_hoy[df_db_hoy["fecha"] == hoy_str].copy()
+            if gestor_activo:
+                hoy_rows = hoy_rows[hoy_rows["gestor"] == gestor_activo]
             if not hoy_rows.empty:
                 hoy_grp = (hoy_rows.groupby("producto")["venta_dia"]
                                    .sum().reset_index()
@@ -1204,56 +1323,81 @@ with tab4:
                         <span style="font-size:26px; color:#1F3864; font-weight:800;">
                             {int(row['venta_dia'])}</span>
                         <span style="font-size:12px; color:#7A8DA8;"> unidades</span>
-                    </div>
-                    """, unsafe_allow_html=True)
+                    </div>""", unsafe_allow_html=True)
             else:
-                st.info("Aún no hay registros de hoy.")
+                st.info("Sin ventas registradas hoy.")
         else:
-            st.info("Usa el formulario para empezar a registrar ventas.")
+            st.info("Usa el formulario para empezar.")
 
-    # ── Historial reciente ────────────────────────────────────────────────────
+    # ── Mis registros / eliminación propia ───────────────────────────────────
     st.markdown("<div style='margin-top:8px'></div>", unsafe_allow_html=True)
-    subheader("📜 Historial de Registros")
+    df_hist_all = cargar_registros_db()
 
-    df_hist = cargar_registros_db()
-    if not df_hist.empty:
-        df_show = (df_hist[["id","timestamp","gestor","departamento",
-                             "producto","fecha","venta_dia","cuota_diaria"]]
-                          .head(100).copy())
-        df_show.columns = ["ID","Registrado","Gestor","Depto",
-                           "Producto","Fecha","Ventas","Cuota Día"]
-        df_show["Ventas"]     = df_show["Ventas"].astype(int)
-        df_show["Cuota Día"]  = df_show["Cuota Día"].round(1)
-        st.dataframe(df_show, use_container_width=True, hide_index=True)
+    if gestor_activo:
+        subheader(f"📜 Mis Registros — {gestor_activo}")
+        df_mis = (df_hist_all[df_hist_all["gestor"] == gestor_activo].copy()
+                  if not df_hist_all.empty and "gestor" in df_hist_all.columns
+                  else pd.DataFrame())
 
-        with st.expander("📈 Resumen acumulado del historial"):
-            resumen = (df_hist.groupby(["gestor","producto"])["venta_dia"]
-                              .sum().reset_index()
-                              .rename(columns={"gestor":"Gestor",
-                                               "producto":"Producto",
-                                               "venta_dia":"Total Ventas"}))
-            resumen["Total Ventas"] = resumen["Total Ventas"].astype(int)
-            st.dataframe(resumen, use_container_width=True, hide_index=True)
+        if not df_mis.empty:
+            df_mis_show = df_mis[["id","fecha","producto","venta_dia","timestamp"]].copy()
+            df_mis_show.columns = ["ID","Fecha","Producto","Ventas","Registrado"]
+            df_mis_show["Ventas"] = df_mis_show["Ventas"].astype(int)
+            st.dataframe(df_mis_show, use_container_width=True, hide_index=True)
 
-        with st.expander("🗑️ Corregir un registro"):
-            st.caption(
-                "Si cometiste un error, puedes eliminar el registro usando el "
-                "**ID** que aparece en la tabla de historial.")
-            del_id = st.number_input(
-                "ID del registro a eliminar", min_value=1, step=1, key="del_reg_id")
-            if st.button("❌ Eliminar registro", key="btn_del_reg"):
-                eliminar_registro_db(int(del_id))
-                st.success(f"Registro #{int(del_id)} eliminado correctamente.")
-                st.rerun()
+            with st.expander("🗑️ Eliminar uno de mis registros"):
+                st.caption("Solo puedes eliminar tus propios registros.")
+                ids_propios = df_mis["id"].astype(int).tolist()
 
-        # Botón de descarga del CSV completo
-        csv_bytes = df_hist.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            label="⬇️ Descargar historial completo (.csv)",
-            data=csv_bytes,
-            file_name="historial_ventas.csv",
-            mime="text/csv",
-            use_container_width=True,
-        )
+                def _label(rid):
+                    r = df_mis[df_mis["id"] == rid]
+                    if r.empty:
+                        return str(rid)
+                    return (f"#{rid} · {r['producto'].values[0]} · "
+                            f"{r['fecha'].values[0]} · {int(r['venta_dia'].values[0])} u.")
+
+                id_a_eliminar = st.selectbox(
+                    "Selecciona el registro",
+                    ids_propios,
+                    format_func=_label,
+                    key="del_propio_id",
+                )
+                if st.button("❌ Eliminar este registro", key="btn_del_propio"):
+                    es_mio = ((df_mis["id"] == id_a_eliminar) &
+                              (df_mis["gestor"] == gestor_activo)).any()
+                    if es_mio:
+                        eliminar_registro_db(int(id_a_eliminar))
+                        st.success(f"Registro #{id_a_eliminar} eliminado.")
+                        st.rerun()
+                    else:
+                        st.error("No puedes eliminar registros de otros gestores.")
+        else:
+            st.info("Aún no tienes registros guardados.")
+
     else:
-        st.info("No hay registros guardados todavía. Usa el formulario para empezar.")
+        subheader("📜 Historial General")
+        if not df_hist_all.empty:
+            cols_show = [c for c in ["id","timestamp","gestor","producto","fecha","venta_dia"]
+                         if c in df_hist_all.columns]
+            df_show = df_hist_all[cols_show].head(100).copy()
+            rename = ["ID","Registrado","Gestor","Producto","Fecha","Ventas"]
+            df_show.columns = rename[:len(cols_show)]
+            if "Ventas" in df_show.columns:
+                df_show["Ventas"] = df_show["Ventas"].astype(int)
+            st.dataframe(df_show, use_container_width=True, hide_index=True)
+
+            csv_bytes = df_hist_all.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                label="⬇️ Descargar historial completo (.csv)",
+                data=csv_bytes,
+                file_name="historial_ventas.csv",
+                mime="text/csv",
+                use_container_width=True,
+            )
+        else:
+            st.info("No hay registros. Ingresa tu DNI para registrar ventas.")
+v",
+                use_container_width=True,
+            )
+        else:
+            st.info("No hay registros guardados todavía. Ingresa tu DNI para registrar ventas.")
