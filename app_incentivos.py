@@ -94,31 +94,32 @@ st.markdown("""
     box-shadow: 0 2px 10px rgba(201,152,42,0.50) !important;
 }
 
-/* ── KPI cards ejecutivas ── */
+/* ── KPI cards ejecutivas — fondo azul corporativo, texto blanco ── */
 [data-testid="metric-container"] {
-    background: #FFFFFF;
+    background: linear-gradient(135deg, #002147 0%, #0057B8 100%);
     border-radius: 12px;
     padding: 18px 20px 14px 20px;
-    box-shadow: 0 4px 16px rgba(0,33,71,0.10);
-    border-left: 5px solid #002147;
-    border-top: 1px solid #E8EDF5;
+    box-shadow: 0 4px 18px rgba(0,33,71,0.30);
+    border-left: 5px solid #C9982A;
+    border-top: none;
     min-height: 90px;
 }
 [data-testid="metric-label"] > div {
     font-size: 11px !important;
-    color: #8A9BB5 !important;
+    color: rgba(255,255,255,0.70) !important;
     font-weight: 700 !important;
     text-transform: uppercase;
     letter-spacing: 0.8px;
 }
 [data-testid="metric-value"] > div {
     font-size: 30px !important;
-    color: #002147 !important;
+    color: #FFFFFF !important;
     font-weight: 800 !important;
 }
 [data-testid="metric-delta"] > div {
     font-size: 12px !important;
     font-weight: 700 !important;
+    color: rgba(255,255,255,0.85) !important;
 }
 
 /* ── Títulos ── */
@@ -186,17 +187,23 @@ def subheader(texto):
     """Encabezado de sección estilo Power BI."""
     st.markdown(f'<div class="section-header">{texto}</div>', unsafe_allow_html=True)
 
-def kpi_card(col, label, value, delta=None, color="#2E75B6"):
-    """Metric card con borde izquierdo coloreado dinámicamente."""
-    # Inyectamos un override de color por tarjeta usando un truco de CSS
+def kpi_card(col, label, value, delta=None, color="#0057B8"):
+    """KPI card con fondo azul corporativo y texto blanco."""
+    delta_html = ""
+    if delta is not None:
+        s = str(delta)
+        is_pos = s.startswith("+") or (not s.startswith("-") and s not in ("", "0"))
+        delta_html = (f'<p style="font-size:12px; color:{"#7DFFB3" if is_pos else "#FFB3B3"};'
+                      f' font-weight:700; margin:4px 0 0 0;">{s}</p>')
     col.markdown(f"""
-    <div style="background:white; border-radius:10px; padding:18px 20px 14px 20px;
-                box-shadow:0 2px 10px rgba(31,56,100,0.10);
-                border-left:5px solid {color}; min-height:90px; margin-bottom:4px;">
-        <p style="font-size:11px; color:#7A8DA8; font-weight:700;
-                  text-transform:uppercase; letter-spacing:0.5px; margin:0 0 6px 0;">{label}</p>
-        <p style="font-size:30px; color:#1F3864; font-weight:800; margin:0; line-height:1.1;">{value}</p>
-        {"" if delta is None else f'<p style="font-size:12px; color:{"#27AE60" if str(delta).startswith("+") or (not str(delta).startswith("-")) else "#E45756"}; font-weight:600; margin:4px 0 0 0;">{delta}</p>'}
+    <div style="background:linear-gradient(135deg,#002147 0%,{color} 100%);
+                border-radius:12px; padding:18px 20px 14px 20px;
+                box-shadow:0 4px 18px rgba(0,33,71,0.28);
+                border-left:5px solid #C9982A; min-height:90px; margin-bottom:4px;">
+        <p style="font-size:11px; color:rgba(255,255,255,0.65); font-weight:700;
+                  text-transform:uppercase; letter-spacing:0.8px; margin:0 0 6px 0;">{label}</p>
+        <p style="font-size:30px; color:#FFFFFF; font-weight:800; margin:0; line-height:1.1;">{value}</p>
+        {delta_html}
     </div>
     """, unsafe_allow_html=True)
 
@@ -442,6 +449,97 @@ def show_pivot(df_src, index_col):
 # ============================================================================
 # DATOS DEMO
 # ============================================================================
+# ============================================================================
+# FUNCIONES — VENTAS SEMANALES Y PUNTOS ADICIONALES
+# ============================================================================
+def calcular_ventas_semanales(df_diario: pd.DataFrame) -> pd.DataFrame:
+    """
+    Agrupa df_diario por Gestor, Producto y semana del mes.
+    Semana 1 = días 1-7, Semana 2 = 8-14, Semana 3 = 15-21, Semana 4 = 22+.
+    Retorna columnas: Gestor, Departamento, Producto, Mes_Año, Semana_Mes,
+                      Ventas_Semana, Cuota_Semana, Dias_Activos, Cumpl_Sem_%, Semaforo.
+    """
+    if df_diario.empty or "Fecha" not in df_diario.columns:
+        return pd.DataFrame()
+    df = df_diario.copy()
+    df["Fecha"]      = pd.to_datetime(df["Fecha"])
+    df["Semana_Mes"] = df["Fecha"].dt.day.apply(lambda d: (d - 1) // 7 + 1)
+    df["Mes_Año"]    = df["Fecha"].dt.to_period("M").astype(str)
+    dept_col = "Departamento" if "Departamento" in df.columns else None
+    grp_cols = ["Gestor","Producto","Mes_Año","Semana_Mes"]
+    if dept_col:
+        grp_cols = ["Gestor","Departamento","Producto","Mes_Año","Semana_Mes"]
+    sem = (df.groupby(grp_cols)
+             .agg(
+                 Ventas_Semana = ("Venta_Dia",   "sum"),
+                 Cuota_Semana  = ("CuotaDiaria", "sum"),
+                 Dias_Activos  = ("Venta_Dia",   "count"),
+             ).reset_index())
+    sem["Cumpl_Sem_%"] = (sem["Ventas_Semana"] /
+                          sem["Cuota_Semana"].replace(0, 1) * 100).round(1)
+    sem["Semaforo"] = sem["Cumpl_Sem_%"].apply(
+        lambda x: "🟢" if x >= 100 else ("🟡" if x >= 80 else "🔴"))
+    return sem
+
+def calcular_puntos_adicionales(df_diario: pd.DataFrame,
+                                df_raw: pd.DataFrame) -> tuple:
+    """
+    Puntos adicionales sobre el sistema base:
+      • +1 punto por cada DÍA en que se supera la cuota diaria
+      • +PTS_CUOTA_SEMANAL por cada SEMANA con cumplimiento ≥ 100 %
+      • +PTS_MES_ANTERIOR si ventas semanales > promedio semanal del mes anterior
+        (estimado = VentaMesAnterior / 4)
+
+    Retorna (df_resultado, df_semanal):
+      df_resultado  → Gestor × Producto con totales de Pts_Adicionales
+      df_semanal    → detalle semana a semana con semáforo
+    """
+    _vacio = pd.DataFrame()
+    if df_diario.empty or "Fecha" not in df_diario.columns:
+        return _vacio, _vacio
+    df = df_diario.copy()
+    df["Fecha"]      = pd.to_datetime(df["Fecha"])
+    df["Semana_Mes"] = df["Fecha"].dt.day.apply(lambda d: (d - 1) // 7 + 1)
+
+    # +1 por día que supera cuota diaria
+    df["Pts_Dia_Extra"] = (df["Venta_Dia"] > df["CuotaDiaria"]).astype(int)
+
+    # Agrupación semanal
+    sem = (df.groupby(["Gestor","Producto","Semana_Mes"])
+             .agg(
+                 Ventas_Sem = ("Venta_Dia",    "sum"),
+                 Cuota_Sem  = ("CuotaDiaria",  "sum"),
+                 Pts_Dia    = ("Pts_Dia_Extra", "sum"),
+             ).reset_index())
+    sem["Cumpl_Sem_%"] = (sem["Ventas_Sem"] /
+                          sem["Cuota_Sem"].replace(0, 1) * 100).round(1)
+    sem["Pts_Sem"]     = (sem["Cumpl_Sem_%"] >= 100).astype(int) * PTS_CUOTA_SEMANAL
+
+    # Puntos vs mes anterior (estimado semanal = VentaMesAnterior / 4)
+    if "Gestor" in df_raw.columns and "VentaMesAnterior" in df_raw.columns:
+        ant_map = (df_raw.drop_duplicates(["Gestor","Producto"])
+                         .set_index(["Gestor","Producto"])["VentaMesAnterior"]
+                         .apply(lambda v: float(v) / 4)
+                         .to_dict())
+        sem["Venta_Ant_Sem"] = sem.apply(
+            lambda r: float(ant_map.get((r["Gestor"], r["Producto"]), 0)), axis=1)
+    else:
+        sem["Venta_Ant_Sem"] = 0.0
+    sem["Pts_vs_Ant"]    = (sem["Ventas_Sem"] > sem["Venta_Ant_Sem"]).astype(int) * PTS_MES_ANTERIOR
+    sem["Pts_Total_Sem"] = sem["Pts_Dia"] + sem["Pts_Sem"] + sem["Pts_vs_Ant"]
+    sem["Semaforo"]      = sem["Cumpl_Sem_%"].apply(
+        lambda x: "🟢" if x >= 100 else ("🟡" if x >= 80 else "🔴"))
+
+    # Totales por Gestor × Producto
+    res = (sem.groupby(["Gestor","Producto"])
+              .agg(
+                  Pts_Extra_Diario = ("Pts_Dia",       "sum"),
+                  Pts_Semanal      = ("Pts_Sem",       "sum"),
+                  Pts_Sem_vs_Ant   = ("Pts_vs_Ant",    "sum"),
+                  Pts_Adicionales  = ("Pts_Total_Sem", "sum"),
+              ).reset_index())
+    return res, sem
+
 def datos_demo():
     random.seed(42)
     gestores = ["Juan","Ana","Luis","Maria","Carlos","Sofia"]
@@ -788,8 +886,25 @@ else:
         df[c] = 0
 
 df[COLS_PROD] = df[COLS_PROD].fillna(0).astype(int)
+
+# ── Ventas semanales y puntos adicionales ─────────────────────────────────────
+df_semanal_resumen = calcular_ventas_semanales(df_diario)
+df_pts_add, df_sem_detalle = calcular_puntos_adicionales(df_diario, df_raw)
+if not df_pts_add.empty:
+    df = df.merge(df_pts_add[["Gestor","Producto","Pts_Adicionales",
+                               "Pts_Extra_Diario","Pts_Semanal","Pts_Sem_vs_Ant"]],
+                  on=["Gestor","Producto"], how="left")
+else:
+    df["Pts_Adicionales"]  = 0
+    df["Pts_Extra_Diario"] = 0
+    df["Pts_Semanal"]      = 0
+    df["Pts_Sem_vs_Ant"]   = 0
+for c in ["Pts_Adicionales","Pts_Extra_Diario","Pts_Semanal","Pts_Sem_vs_Ant"]:
+    df[c] = df[c].fillna(0).astype(int)
+
 df["Total_Puntos"] = (
-    df["Puntos_Base"] + df["Puntos_Diario"] + df["Puntos_Crec"] + df["Puntos_Producto"]
+    df["Puntos_Base"] + df["Puntos_Diario"] + df["Puntos_Crec"] +
+    df["Puntos_Producto"] + df["Pts_Adicionales"]
 )
 
 # ============================================================================
@@ -1236,6 +1351,55 @@ with tab3:
     )
     st.plotly_chart(fig_bar, use_container_width=True)
 
+    # ── Resumen Semanal ──────────────────────────────────────────────────────
+    st.markdown("<div style='margin-top:8px'></div>", unsafe_allow_html=True)
+    subheader("📆 Resumen Semanal por Gestor")
+
+    if not df_semanal_resumen.empty:
+        # Filtros de seguimiento diario aplicados
+        df_sem_f = df_semanal_resumen.copy()
+        if gestor_sel != "Todos" and "Gestor" in df_sem_f.columns:
+            df_sem_f = df_sem_f[df_sem_f["Gestor"] == gestor_sel]
+        if depto_sel != "Todos" and "Departamento" in df_sem_f.columns:
+            df_sem_f = df_sem_f[df_sem_f["Departamento"] == depto_sel]
+
+        # Tabla resumen semanal con semáforo
+        cols_sem = [c for c in ["Semaforo","Gestor","Producto","Semana_Mes",
+                                 "Ventas_Semana","Cuota_Semana","Cumpl_Sem_%",
+                                 "Dias_Activos"] if c in df_sem_f.columns]
+        df_sem_show = df_sem_f[cols_sem].copy()
+        df_sem_show.rename(columns={
+            "Semaforo":"","Semana_Mes":"Semana",
+            "Ventas_Semana":"Ventas","Cuota_Semana":"Cuota",
+            "Cumpl_Sem_%":"Cumpl %","Dias_Activos":"Días"
+        }, inplace=True)
+        for c in ["Ventas","Cuota"]:
+            if c in df_sem_show.columns:
+                df_sem_show[c] = df_sem_show[c].round(0).astype(int)
+        st.dataframe(df_sem_show, use_container_width=True, hide_index=True)
+
+        # Totales de puntos adicionales por gestor
+        if not df_sem_detalle.empty:
+            subheader("🏅 Puntos Adicionales Semanales")
+            df_pts_sem_show = (df_sem_detalle
+                .groupby(["Gestor","Producto"])
+                .agg(
+                    Días_Sobre_Cuota = ("Pts_Dia",       "sum"),
+                    Pts_Semanales    = ("Pts_Sem",       "sum"),
+                    Pts_vs_MesAnt    = ("Pts_vs_Ant",    "sum"),
+                    Total_Adicional  = ("Pts_Total_Sem", "sum"),
+                ).reset_index())
+            # Semáforo total
+            max_posible = df_pts_sem_show["Total_Adicional"].max() or 1
+            df_pts_sem_show[""] = df_pts_sem_show["Total_Adicional"].apply(
+                lambda x: "🟢" if x >= max_posible * 0.7 else ("🟡" if x >= max_posible * 0.4 else "🔴"))
+            cols_order = ["","Gestor","Producto",
+                          "Días_Sobre_Cuota","Pts_Semanales","Pts_vs_MesAnt","Total_Adicional"]
+            st.dataframe(df_pts_sem_show[[c for c in cols_order if c in df_pts_sem_show.columns]],
+                         use_container_width=True, hide_index=True)
+    else:
+        st.info("Sin datos diarios para calcular semanas. Carga datos en la hoja Diario o usa la pestaña Registro Diario.")
+
 # ============================================================================
 # TAB 4 — REGISTRO DIARIO DE VENTAS
 # ============================================================================
@@ -1294,7 +1458,7 @@ with tab4:
     st.markdown("<div style='margin-top:12px'></div>", unsafe_allow_html=True)
     col_form, col_hoy = st.columns([3, 2])
 
-    # ── Formulario de carga ───────────────────────────────────────────────────
+    # ── Formulario de carga ───────────────────────────────────────────────────────────────────
     with col_form:
         subheader("📋 Nueva Venta")
 
@@ -1302,12 +1466,13 @@ with tab4:
             st.info("👆 Ingresa tu DNI arriba para habilitar el formulario de registro.")
         else:
             with st.form("form_registro_diario", clear_on_submit=True):
-                # Nombre visible pero no editable
                 st.markdown(f"""
-                <div style="background:#F0F4FA; border-radius:6px; padding:8px 14px;
-                            margin-bottom:10px; font-size:14px; color:#1F3864;">
-                    👤 <strong>{gestor_activo}</strong>
-                    <span style="color:#7A8DA8; font-size:12px;"> · {depto_activo}</span>
+                <div style="background:linear-gradient(135deg,#002147 0%,#0057B8 100%);
+                            border-radius:6px; padding:8px 14px; margin-bottom:10px;
+                            border-left:4px solid #C9982A;">
+                    <span style="font-size:14px; color:#FFFFFF; font-weight:700;">
+                        👤 {gestor_activo}</span>
+                    <span style="color:rgba(255,255,255,0.65); font-size:12px;"> · {depto_activo}</span>
                 </div>""", unsafe_allow_html=True)
 
                 r1c1, r1c2 = st.columns(2)
@@ -1335,17 +1500,12 @@ with tab4:
                                     cuota_d_f = float(row_c["Cuota"]) / 22
 
                         es_dup = existe_registro_db(gestor_activo, producto_sel_f, str(fecha_f))
-
                         insertar_registro_db(
-                            gestor=gestor_activo,
-                            departamento=depto_activo,
-                            producto=producto_sel_f,
-                            fecha=str(fecha_f),
-                            venta_dia=float(ventas_f),
-                            cuota_diaria=cuota_d_f,
+                            gestor=gestor_activo, departamento=depto_activo,
+                            producto=producto_sel_f, fecha=str(fecha_f),
+                            venta_dia=float(ventas_f), cuota_diaria=cuota_d_f,
                             dni=dni_input.strip(),
                         )
-
                         if es_dup:
                             st.warning(
                                 f"⚠️ Ya tenías un registro de **{producto_sel_f}** "
@@ -1356,7 +1516,6 @@ with tab4:
                                 f"{int(ventas_f)} unidades · {fecha_f}")
                         st.rerun()
 
-    # ── Resumen de hoy (filtrado por gestor si está identificado) ─────────────
     with col_hoy:
         subheader(f"📊 Hoy — {date.today().strftime('%d/%m/%Y')}")
         df_db_hoy = cargar_registros_db()
@@ -1368,26 +1527,25 @@ with tab4:
                 hoy_rows = hoy_rows[hoy_rows["gestor"] == gestor_activo]
             if not hoy_rows.empty:
                 hoy_grp = (hoy_rows.groupby("producto")["venta_dia"]
-                                   .sum().reset_index()
-                                   .sort_values("producto"))
+                                   .sum().reset_index().sort_values("producto"))
                 for _, row in hoy_grp.iterrows():
                     color = PALETA[PRODUCTOS_ORDEN.index(row["producto"]) % len(PALETA)]
                     st.markdown(f"""
-                    <div style="background:white; border-radius:8px; padding:10px 16px;
-                                border-left:5px solid {color}; margin-bottom:8px;
-                                box-shadow:0 1px 4px rgba(31,56,100,0.1);">
-                        <span style="font-size:11px; color:#7A8DA8; font-weight:700;
-                                     text-transform:uppercase;">{row['producto']}</span><br>
-                        <span style="font-size:26px; color:#1F3864; font-weight:800;">
+                    <div style="background:linear-gradient(135deg,#002147 0%,{color} 100%);
+                                border-radius:8px; padding:10px 16px; margin-bottom:8px;
+                                border-left:4px solid #C9982A;
+                                box-shadow:0 3px 10px rgba(0,33,71,0.20);">
+                        <span style="font-size:11px; color:rgba(255,255,255,0.65);
+                                     font-weight:700; text-transform:uppercase;">{row['producto']}</span><br>
+                        <span style="font-size:26px; color:#FFFFFF; font-weight:800;">
                             {int(row['venta_dia'])}</span>
-                        <span style="font-size:12px; color:#7A8DA8;"> unidades</span>
+                        <span style="font-size:12px; color:rgba(255,255,255,0.65);"> unidades</span>
                     </div>""", unsafe_allow_html=True)
             else:
                 st.info("Sin ventas registradas hoy.")
         else:
             st.info("Usa el formulario para empezar.")
 
-    # ── Mis registros / eliminación propia ───────────────────────────────────
     st.markdown("<div style='margin-top:8px'></div>", unsafe_allow_html=True)
     df_hist_all = cargar_registros_db()
 
@@ -1415,11 +1573,8 @@ with tab4:
                             f"{r['fecha'].values[0]} · {int(r['venta_dia'].values[0])} u.")
 
                 id_a_eliminar = st.selectbox(
-                    "Selecciona el registro",
-                    ids_propios,
-                    format_func=_label,
-                    key="del_propio_id",
-                )
+                    "Selecciona el registro", ids_propios,
+                    format_func=_label, key="del_propio_id")
                 if st.button("❌ Eliminar este registro", key="btn_del_propio"):
                     es_mio = ((df_mis["id"] == id_a_eliminar) &
                               (df_mis["gestor"] == gestor_activo)).any()
@@ -1431,24 +1586,26 @@ with tab4:
                         st.error("No puedes eliminar registros de otros gestores.")
         else:
             st.info("Aún no tienes registros guardados.")
-
     else:
         subheader("📜 Historial General")
         if not df_hist_all.empty:
             cols_show = [c for c in ["id","timestamp","gestor","producto","fecha","venta_dia"]
                          if c in df_hist_all.columns]
             df_show = df_hist_all[cols_show].head(100).copy()
-            rename = ["ID","Registrado","Gestor","Producto","Fecha","Ventas"]
+            rename  = ["ID","Registrado","Gestor","Producto","Fecha","Ventas"]
             df_show.columns = rename[:len(cols_show)]
             if "Ventas" in df_show.columns:
                 df_show["Ventas"] = df_show["Ventas"].astype(int)
             st.dataframe(df_show, use_container_width=True, hide_index=True)
-
             csv_bytes = df_hist_all.to_csv(index=False).encode("utf-8")
             st.download_button(
                 label="⬇️ Descargar historial completo (.csv)",
-                data=csv_bytes,
-                file_name="historial_ventas.csv",
+                data=csv_bytes, file_name="historial_ventas.csv",
+                mime="text/csv", use_container_width=True,
+            )
+        else:
+            st.info("No hay registros. Ingresa tu DNI para registrar ventas.")
+  file_name="historial_ventas.csv",
                 mime="text/csv",
                 use_container_width=True,
             )
