@@ -854,6 +854,10 @@ def buscar_por_dni(dni: str):
 # CARGA DE DATOS
 # ============================================================================
 ADMIN_PASSWORD = "admin2025"      # ← cambia esta contraseña
+
+# ── Admin session state ───────────────────────────────────────────────────────
+if "es_admin" not in st.session_state:
+    st.session_state["es_admin"] = False
 DATA_PATH      = "datos_incentivos.xlsx"   # archivo guardado en el servidor
 
 def normalizar_columnas(df):
@@ -892,32 +896,21 @@ st.sidebar.markdown(
 )
 st.sidebar.title("⚙️ Configuración")
 
-with st.sidebar.expander("🔐 Administrador"):
-    pwd_input = st.text_input("Contraseña", type="password", key="admin_pwd")
-    es_admin  = pwd_input == ADMIN_PASSWORD
-    if pwd_input and not es_admin:
-        st.error("Contraseña incorrecta")
-    if es_admin:
-        st.success("✅ Modo admin activo")
-        archivo_subido = st.file_uploader("📤 Cargar datos (.xlsx)", type=["xlsx"])
-
+# ── Carga de archivo Excel (solo cuando admin está activo) ───────────────────
+if st.session_state.get("es_admin"):
+    with st.sidebar.expander("📤 Cargar datos Excel", expanded=True):
+        archivo_subido = st.file_uploader("Archivo .xlsx", type=["xlsx"])
         if archivo_subido:
             bytes_data = archivo_subido.read()
             with open(DATA_PATH, "wb") as f:
                 f.write(bytes_data)
             st.success("✅ Datos guardados — todos los usuarios verán la actualización")
+else:
+    archivo_subido = None
 
-        st.markdown("---")
-        def _cerrar_sesion():
-            if "admin_pwd" in st.session_state:
-                del st.session_state["admin_pwd"]
-        st.button("🔓 Cerrar sesión", key="logout_btn",
-                  on_click=_cerrar_sesion, use_container_width=True)
-    else:
-        archivo_subido = None
-
-# ── Prioridad de carga: recién subido > guardado en disco > demo ──────────────
-if 'es_admin' not in dir() or not es_admin:
+# ── es_admin desde session_state ─────────────────────────────────────────────
+es_admin = st.session_state.get("es_admin", False)
+if not es_admin:
     archivo_subido = None
 
 if archivo_subido:
@@ -1109,6 +1102,30 @@ with st.sidebar.expander("🆕 Motor por producto"):
 | Extra Porta Pre/OSS /ud | 4 |
 | UR Prepago ≥ 55 % cuota | 15 |
 """)
+
+# ============================================================================
+# BOTÓN ADMIN — esquina superior derecha
+# ============================================================================
+_col_space, _col_adm = st.columns([8, 2])
+with _col_adm:
+    _lbl = "🔓 Admin activo" if st.session_state.get("es_admin") else "🔐 Administrador"
+    with st.popover(_lbl, use_container_width=True):
+        if not st.session_state.get("es_admin"):
+            st.markdown("#### Acceso Administrador")
+            _pwd = st.text_input("Contraseña", type="password", key="admin_pwd_top")
+            if st.button("Entrar", key="btn_admin_enter", use_container_width=True):
+                if _pwd == ADMIN_PASSWORD:
+                    st.session_state["es_admin"] = True
+                    st.rerun()
+                elif _pwd:
+                    st.error("Contraseña incorrecta")
+        else:
+            st.success("✅ Modo administrador activo")
+            st.caption("El menú de carga de datos aparece en el sidebar izquierdo.")
+            st.markdown("---")
+            if st.button("🔓 Cerrar sesión", key="logout_top", use_container_width=True):
+                st.session_state["es_admin"] = False
+                st.rerun()
 
 # ============================================================================
 # TABS
