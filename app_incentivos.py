@@ -998,15 +998,26 @@ if not df_diario.empty:
         df_diario = pd.DataFrame()
 
 # ── Merge datos SQLite (Registro Diario) → df_diario ─────────────────────────
+# Regla de prioridad: Excel Diario > SQLite (app).
+# Si el Excel ya tiene un registro para Gestor+Producto+Fecha, ese gana.
+# Solo se usan los registros SQLite para fechas que NO están en el Excel.
 df_diario_sqlite = db_a_diario(df_raw)
 if not df_diario_sqlite.empty:
-    df_diario = pd.concat([df_diario, df_diario_sqlite], ignore_index=True)
-    # Suma registros duplicados (mismo Gestor+Producto+Fecha de ambas fuentes)
     if not df_diario.empty:
-        df_diario = (df_diario
-                     .groupby(["Gestor","Departamento","Producto","Fecha"])
-                     .agg(Venta_Dia=("Venta_Dia","sum"), CuotaDiaria=("CuotaDiaria","first"))
-                     .reset_index())
+        # Claves que ya cubre el Excel
+        excel_keys = set(
+            zip(df_diario["Gestor"].astype(str),
+                df_diario["Producto"].astype(str),
+                df_diario["Fecha"].astype(str))
+        )
+        # Solo mantener filas SQLite que NO tienen registro en Excel
+        mask_nuevas = ~df_diario_sqlite.apply(
+            lambda r: (str(r["Gestor"]), str(r["Producto"]), str(r["Fecha"])) in excel_keys,
+            axis=1
+        )
+        df_diario = pd.concat([df_diario, df_diario_sqlite[mask_nuevas]], ignore_index=True)
+    else:
+        df_diario = df_diario_sqlite
 
 # ── Procesar base ────────────────────────────────────────────────────────────
 df = procesar(df_raw)
