@@ -582,13 +582,15 @@ def calcular_ventas_semanales(df_diario: pd.DataFrame) -> pd.DataFrame:
     return sem
 
 def calcular_puntos_adicionales(df_diario: pd.DataFrame,
-                                df_raw: pd.DataFrame) -> tuple:
+                                df_raw: pd.DataFrame,
+                                df_sem_ant: pd.DataFrame = None) -> tuple:
     """
     Puntos adicionales sobre el sistema base:
       • +1 punto por cada DÍA en que se supera la cuota diaria
       • +PTS_CUOTA_SEMANAL por cada SEMANA con cumplimiento ≥ 100 %
-      • +PTS_MES_ANTERIOR si ventas semanales > promedio semanal del mes anterior
-        (estimado = VentaMesAnterior / 4)
+      • +PTS_MES_ANTERIOR si ventas de la semana N > ventas de la semana N del mes anterior
+        Fuente preferida: hoja Semanal_MesAnt (Gestor × Producto × Semana × Venta_Semana)
+        Fallback: VentaMesAnterior / 4 si no hay hoja semanal
 
     Retorna (df_resultado, df_semanal):
       df_resultado  → Gestor × Producto con totales de Pts_Adicionales
@@ -615,8 +617,26 @@ def calcular_puntos_adicionales(df_diario: pd.DataFrame,
                           sem["Cuota_Sem"].replace(0, 1) * 100).round(1)
     sem["Pts_Sem"]     = (sem["Cumpl_Sem_%"] >= 100).astype(int) * PTS_CUOTA_SEMANAL
 
-    # Puntos vs mes anterior (estimado semanal = VentaMesAnterior / 4)
-    if "Gestor" in df_raw.columns and "VentaMesAnterior" in df_raw.columns:
+    # ── Puntos vs semana equivalente del mes anterior ────────────────────────
+    # Fuente 1: hoja Semanal_MesAnt → comparación semana exacta vs semana exacta
+    usar_semanal_ant = (
+        df_sem_ant is not None and not df_sem_ant.empty and
+        all(c in df_sem_ant.columns for c in ["Gestor", "Producto", "Semana", "Venta_Semana"])
+    )
+    if usar_semanal_ant:
+        # Construir mapa (Gestor, Producto, Semana) → Venta_Semana_MesAnt
+        ant_map = {}
+        for _, row in df_sem_ant.iterrows():
+            key = (str(row["Gestor"]).strip(),
+                   str(row["Producto"]).strip(),
+                   int(float(row["Semana"])))
+            ant_map[key] = float(row.get("Venta_Semana", 0) or 0)
+        sem["Venta_Ant_Sem"] = sem.apply(
+            lambda r: ant_map.get(
+                (str(r["Gestor"]).strip(), str(r["Producto"]).strip(), int(r["Semana_Mes"])),
+                0.0), axis=1)
+    # Fuente 2: fallback — total mes anterior / 4 (estimación)
+    elif "Gestor" in df_raw.columns and "VentaMesAnterior" in df_raw.columns:
         ant_map = (df_raw.drop_duplicates(["Gestor","Producto"])
                          .set_index(["Gestor","Producto"])["VentaMesAnterior"]
                          .apply(lambda v: float(v) / 4)
@@ -625,6 +645,7 @@ def calcular_puntos_adicionales(df_diario: pd.DataFrame,
             lambda r: float(ant_map.get((r["Gestor"], r["Producto"]), 0)), axis=1)
     else:
         sem["Venta_Ant_Sem"] = 0.0
+
     sem["Pts_vs_Ant"]    = (sem["Ventas_Sem"] > sem["Venta_Ant_Sem"]).astype(int) * PTS_MES_ANTERIOR
     sem["Pts_Total_Sem"] = sem["Pts_Dia"] + sem["Pts_Sem"] + sem["Pts_vs_Ant"]
     sem["Semaforo"]      = sem["Cumpl_Sem_%"].apply(
@@ -853,11 +874,12 @@ def leer_hoja(xls, sheet_name):
     return normalizar_columnas(df)
 
 def cargar_excel(fuente):
-    """Carga Mensual y Diario desde un archivo o buffer."""
+    """Carga Mensual, Diario y Semanal_MesAnt desde un archivo o buffer."""
     xls       = pd.ExcelFile(fuente)
     df_m      = leer_hoja(xls, "Mensual")
-    df_d      = leer_hoja(xls, "Diario") if "Diario" in xls.sheet_names else pd.DataFrame()
-    return df_m, df_d
+    df_d      = leer_hoja(xls, "Diario")          if "Diario"          in xls.sheet_names else pd.DataFrame()
+    df_sa     = leer_hoja(xls, "Semanal_MesAnt")  if "Semanal_MesAnt"  in xls.sheet_names else pd.DataFrame()
+    return df_m, df_d, df_sa
 
 # ── Sidebar ──────────────────────────────────────────────────────────────────
 st.sidebar.markdown(
@@ -900,9 +922,9 @@ if 'es_admin' not in dir() or not es_admin:
 if archivo_subido:
     import io
     archivo_subido.seek(0)
-    df_raw, df_diario = cargar_excel(io.BytesIO(archivo_subido.read()))
+    df_raw, df_diario, df_sem_ant = cargar_excel(io.BytesIO(archivo_subido.read()))
 elif os.path.exists(DATA_PATH):
-    df_raw, df_diario = cargar_excel(DATA_PATH)
+    df_raw, df_diario, df_sem_ant = cargar_excel(DATA_PATH)
     if es_admin:
         import time
         mod_time = os.path.getmtime(DATA_PATH)
@@ -910,6 +932,7 @@ elif os.path.exists(DATA_PATH):
         st.sidebar.caption(f"📂 Datos activos · cargados el {fecha_mod}")
 else:
     df_raw, df_diario = datos_demo()
+    df_sem_ant = pd.DataFrame()
     if es_admin:
         st.sidebar.info("No hay datos guardados. Sube tu Excel para activarlos.")
 
@@ -1004,7 +1027,7 @@ df[COLS_PROD] = df[COLS_PROD].fillna(0).astype(int)
 
 # ── Ventas semanales y puntos adicionales ─────────────────────────────────────
 df_semanal_resumen = calcular_ventas_semanales(df_diario)
-df_pts_add, df_sem_detalle = calcular_puntos_adicionales(df_diario, df_raw)
+df_pts_add, df_sem_detalle = calcular_puntos_adicionales(df_diario, df_raw, df_sem_ant)
 if not df_pts_add.empty:
     df = df.merge(df_pts_add[["Gestor","Producto","Pts_Adicionales",
                                "Pts_Extra_Diario","Pts_Semanal","Pts_Sem_vs_Ant"]],
