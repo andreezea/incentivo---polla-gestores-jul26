@@ -724,10 +724,18 @@ def _guardar_csv(df: pd.DataFrame):
 
 def insertar_registro_db(gestor, departamento, producto, fecha,
                          venta_dia, cuota_diaria, dni=""):
-    """Agrega un registro nuevo (append-only)."""
+    """Inserta o reemplaza el registro para gestor+producto+fecha (upsert)."""
     from datetime import datetime
     ts  = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     df  = cargar_registros_db()
+
+    # Eliminar registro previo del mismo gestor+producto+fecha (reemplazar, no sumar)
+    if not df.empty:
+        mask_dup = ((df["gestor"] == gestor) &
+                    (df["producto"] == producto) &
+                    (df["fecha"] == str(fecha)))
+        df = df[~mask_dup].reset_index(drop=True)
+
     nid = int(df["id"].max()) + 1 if (not df.empty and "id" in df.columns
                                        and pd.notna(df["id"].max())) else 1
     nueva = pd.DataFrame([{
@@ -1604,9 +1612,9 @@ with tab4:
                             dni=dni_input.strip(),
                         )
                         if es_dup:
-                            st.warning(
-                                f"⚠️ Ya tenías un registro de **{producto_sel_f}** "
-                                f"el {fecha_f}. Se sumó al acumulado del día.")
+                            st.info(
+                                f"🔄 Registro actualizado · **{producto_sel_f}** · "
+                                f"{int(ventas_f)} unidades · {fecha_f} (reemplazó el anterior)")
                         else:
                             st.success(
                                 f"✅ Guardado · {producto_sel_f} · "
