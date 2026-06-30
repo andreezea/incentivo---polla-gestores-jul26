@@ -15,7 +15,8 @@ _LOGO_B64 = "iVBORw0KGgoAAAANSUhEUgAAASAAAABgCAYAAAC9rK9YAAB9lUlEQVR4nOy9d7gtSVX
 _logo_html = f'<img src="data:image/png;base64,{_LOGO_B64}" style="height:65px;object-fit:contain;padding:4px;" alt="Fanero SAC">'
 
 
-st.set_page_config(page_title="Incentivo Fanero Julio 2026", layout="wide", page_icon="🏆")
+st.set_page_config(page_title="Incentivo Fanero Julio 2026", layout="wide", page_icon="🏆",
+                   initial_sidebar_state="expanded")
 
 # ============================================================================
 # ESTILOS GLOBALES — Power BI look
