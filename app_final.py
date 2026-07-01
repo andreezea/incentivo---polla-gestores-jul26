@@ -548,33 +548,39 @@ def show_pivot(df_src, index_col):
     st.markdown(_pivot_to_html(pv, index_col, prods), unsafe_allow_html=True)
 
 
-def show_pivot_regional(df_src):
-    """Tabla Por Departamento con regiones colapsables (Oriente / Centro)."""
-    import streamlit.components.v1 as components
-
+def _build_tabla_regional(df_src, col_idx, label_idx, tabla_id):
+    """
+    Genera HTML de tabla con jerarquía Región → filas (dept o gestor),
+    fila de total al final llamada 'Fanero'.
+    Reutilizada por show_pivot_regional y show_pivot_gestor_regional.
+    """
     avail = [p for p in PRODUCTOS_ORDEN if p in df_src["Producto"].unique()]
     if not avail:
-        st.info("Sin datos de producto.")
-        return
+        return None, 0
 
-    # ── Pivot por departamento ────────────────────────────────────────────────
-    pv_dept = build_pivot(df_src, "Departamento")
+    # Pivots
+    pv_item = build_pivot(df_src, col_idx)
+    df_r    = df_src.copy()
+    df_r["_Region"] = df_r["Departamento"].map(DEPTO_A_REGION).fillna("Otros")
+    pv_reg  = build_pivot(df_r, "_Region")
 
-    # ── Pivot por región ──────────────────────────────────────────────────────
-    df_r = df_src.copy()
-    df_r["Region"] = df_r["Departamento"].map(DEPTO_A_REGION).fillna("Otros")
-    pv_reg = build_pivot(df_r, "Region")
+    # Para el total Fanero
+    df_tot       = df_src.copy()
+    df_tot["_T"] = "Fanero"
+    pv_tot       = build_pivot(df_tot, "_T")
 
-    # ── Estilos base ──────────────────────────────────────────────────────────
+    # Estilos
     CELL  = "padding:7px 11px;border:1px solid #BFCDE0;font-size:12.5px;text-align:right;background:#F5F7FB;"
-    IDX   = "padding:7px 14px;border:1px solid #BFCDE0;font-size:12.5px;background:#EBF0FA;text-align:left;"
+    IDX   = "padding:7px 14px;border:1px solid #BFCDE0;font-size:12.5px;background:#EBF0FA;text-align:left;color:#0A2A5E;"
     REG   = "padding:9px 14px;border:1px solid #0A2A5E;font-size:13px;font-weight:800;color:#FFD97A;background:#0A2A5E;text-align:left;cursor:pointer;user-select:none;"
     REGC  = "padding:7px 11px;border:1px solid #0A2A5E;font-size:12.5px;text-align:right;background:#0A2A5E;color:#FFD97A;font-weight:700;"
+    TOT   = "padding:9px 14px;border:2px solid #C9982A;font-size:13px;font-weight:800;color:#0A2A5E;background:#FFF3CD;text-align:left;"
+    TOTC  = "padding:7px 11px;border:2px solid #C9982A;font-size:12.5px;text-align:right;background:#FFF3CD;color:#0A2A5E;font-weight:800;"
     HEAD1 = "padding:7px 12px;background:#0A2A5E;color:#FFF;font-size:11px;font-weight:700;text-align:center;border:1px solid #1565C0;text-transform:uppercase;letter-spacing:0.5px;"
     HEAD2 = "padding:5px 10px;background:#0B5ED7;color:#FFF;font-size:10.5px;font-weight:700;text-align:center;border:1px solid #1976D2;"
 
-    # ── Cabecera ──────────────────────────────────────────────────────────────
-    h1 = f'<th style="{HEAD1};text-align:left" rowspan="2">DEPARTAMENTO</th>'
+    # Cabecera
+    h1 = f'<th style="{HEAD1};text-align:left" rowspan="2">{label_idx.upper()}</th>'
     h2 = ""
     for p in avail:
         h1 += f'<th style="{HEAD1}" colspan="3">{p}</th>'
@@ -582,79 +588,120 @@ def show_pivot_regional(df_src):
             h2 += f'<th style="{HEAD2}">{m}</th>'
     thead = f"<thead><tr>{h1}</tr><tr>{h2}</tr></thead>"
 
-    # ── Helper: celdas de una fila del pivot ──────────────────────────────────
-    def _celdas(pv, ix, estiloCell, estiloNum):
+    def _celdas(pv, ix, cel, modo):
         out = ""
         for p in avail:
             cu = pv.loc[ix, (p, "Cuota")]  if (p, "Cuota")  in pv.columns else 0
             ve = pv.loc[ix, (p, "Ventas")] if (p, "Ventas") in pv.columns else 0
             cm = pv.loc[ix, (p, "Cumpl%")] if (p, "Cumpl%") in pv.columns else 0
-            try: cm_n = float(str(cm).replace("%", ""))
+            try:   cm_n = float(str(cm).replace("%", ""))
             except: cm_n = 0
-            if estiloNum == "region":
-                clr = "#FFD97A"
-            else:
-                clr = _cumpl_color(cm_n)
-            out += f'<td style="{estiloCell}">{int(cu) if pd.notna(cu) else "-"}</td>'
-            out += f'<td style="{estiloCell}">{int(ve) if pd.notna(ve) else "-"}</td>'
-            out += f'<td style="{estiloCell}color:{clr};font-weight:800;">{int(cm_n) if pd.notna(cm) else "-"}%</td>'
+            clr = "#FFD97A" if modo == "region" else ("#C9982A" if modo == "total" else _cumpl_color(cm_n))
+            out += f'<td style="{cel}">{int(cu) if pd.notna(cu) else "-"}</td>'
+            out += f'<td style="{cel}">{int(ve) if pd.notna(ve) else "-"}</td>'
+            out += f'<td style="{cel}color:{clr};font-weight:800;">{int(cm_n) if pd.notna(cm) else "-"}%</td>'
         return out
 
-    # ── Cuerpo: iterar regiones ───────────────────────────────────────────────
     tbody = "<tbody>"
     orden_regiones = [r for r in ["Oriente", "Centro", "Otros"] if r in pv_reg.index]
+    n_filas = 0
 
     for region in orden_regiones:
-        rid = region.lower().replace(" ", "_")
-        # Fila de región (colapsable)
-        reg_celdas = _celdas(pv_reg, region, REGC, "region") if region in pv_reg.index else ""
+        rid = f"{tabla_id}_{region.lower()}"
+        reg_celdas = _celdas(pv_reg, region, REGC, "region")
         tbody += (
             f'<tr onclick="toggleRegion(\'{rid}\')" title="Clic para expandir/colapsar">'
-            f'<td style="{REG}"><span id="ind-{rid}" style="margin-right:8px;font-size:14px;">▼</span>{region}</td>'
+            f'<td style="{REG}"><span id="ind-{rid}" style="margin-right:8px;font-size:14px;">▼</span>🌎 {region}</td>'
             f'{reg_celdas}</tr>'
         )
-        # Filas de departamento
-        deptos_region = sorted(REGIONES.get(region, [d for d in pv_dept.index
-                                                      if DEPTO_A_REGION.get(d) == region
-                                                      or (region == "Otros" and d not in DEPTO_A_REGION)]))
-        for depto in deptos_region:
-            if depto not in pv_dept.index:
-                continue
-            dept_celdas = _celdas(pv_dept, depto, CELL, "dept")
-            tbody += (
-                f'<tr class="deptrow-{rid}" style="display:table-row;">'
-                f'<td style="{IDX}color:#0A2A5E;">&nbsp;&nbsp;&nbsp;&nbsp;{depto}</td>'
-                f'{dept_celdas}</tr>'
-            )
+        # Filas hijas (departamentos o gestores de esa región)
+        if col_idx == "Gestor":
+            # gestores cuyo departamento pertenece a la región
+            gest_region = sorted([
+                g for g in pv_item.index
+                if DEPTO_A_REGION.get(
+                    df_src[df_src["Gestor"] == g]["Departamento"].iloc[0]
+                    if not df_src[df_src["Gestor"] == g].empty else "", ""
+                ) == region
+                or (region == "Otros" and DEPTO_A_REGION.get(
+                    df_src[df_src["Gestor"] == g]["Departamento"].iloc[0]
+                    if not df_src[df_src["Gestor"] == g].empty else "", None
+                ) is None)
+            ])
+            for item in gest_region:
+                if item not in pv_item.index:
+                    continue
+                tbody += (
+                    f'<tr class="deptrow-{rid}" style="display:table-row;">'
+                    f'<td style="{IDX}">&nbsp;&nbsp;&nbsp;&nbsp;{item}</td>'
+                    f'{_celdas(pv_item, item, CELL, "item")}</tr>'
+                )
+                n_filas += 1
+        else:
+            deptos_r = sorted(REGIONES.get(region, [
+                d for d in pv_item.index
+                if (DEPTO_A_REGION.get(d) == region)
+                   or (region == "Otros" and d not in DEPTO_A_REGION)
+            ]))
+            for depto in deptos_r:
+                if depto not in pv_item.index:
+                    continue
+                tbody += (
+                    f'<tr class="deptrow-{rid}" style="display:table-row;">'
+                    f'<td style="{IDX}">&nbsp;&nbsp;&nbsp;&nbsp;{depto}</td>'
+                    f'{_celdas(pv_item, depto, CELL, "item")}</tr>'
+                )
+                n_filas += 1
+
+    # ── Fila total Fanero ─────────────────────────────────────────────────────
+    if "Fanero" in pv_tot.index:
+        tot_celdas = _celdas(pv_tot, "Fanero", TOTC, "total")
+        tbody += (
+            f'<tr>'
+            f'<td style="{TOT}">🏆 Fanero</td>'
+            f'{tot_celdas}</tr>'
+        )
     tbody += "</tbody>"
 
-    # ── JavaScript de colapso ─────────────────────────────────────────────────
-    js = """
+    js = f"""
     <script>
-    var _expanded = {};
-    function toggleRegion(rid) {
+    var _exp_{tabla_id} = {{}};
+    function toggleRegion(rid) {{
         var rows = document.querySelectorAll('.deptrow-' + rid);
         var ind  = document.getElementById('ind-' + rid);
-        _expanded[rid] = !_expanded[rid];
-        rows.forEach(function(r) {
-            r.style.display = _expanded[rid] ? 'none' : 'table-row';
-        });
-        ind.textContent = _expanded[rid] ? '▶' : '▼';
-    }
+        _exp_{tabla_id}[rid] = !_exp_{tabla_id}[rid];
+        rows.forEach(function(r) {{
+            r.style.display = _exp_{tabla_id}[rid] ? 'none' : 'table-row';
+        }});
+        ind.textContent = _exp_{tabla_id}[rid] ? '▶' : '▼';
+    }}
     </script>
     """
 
-    n_dept = sum(len(REGIONES.get(r, [])) for r in orden_regiones)
-    altura = 90 + len(orden_regiones) * 42 + n_dept * 38 + 20
-
+    altura = 90 + len(orden_regiones) * 44 + n_filas * 38 + 50
     html = (
         '<div style="overflow-x:auto;border-radius:10px;border:1.5px solid #BFCDE0;'
         'box-shadow:0 2px 8px rgba(10,42,94,0.09);margin-bottom:4px;">'
         '<table style="border-collapse:collapse;width:100%;font-family:Arial,sans-serif;">'
-        + thead + tbody +
-        '</table></div>' + js
+        + thead + tbody + '</table></div>' + js
     )
-    components.html(html, height=altura, scrolling=True)
+    return html, altura
+
+
+def show_pivot_regional(df_src):
+    """Tabla Por Departamento con regiones colapsables y fila Fanero."""
+    import streamlit.components.v1 as components
+    html, altura = _build_tabla_regional(df_src, "Departamento", "Departamento", "dept")
+    if html:
+        components.html(html, height=altura, scrolling=True)
+
+
+def show_pivot_gestor_regional(df_src):
+    """Tabla Por Gestor con regiones colapsables y fila Fanero."""
+    import streamlit.components.v1 as components
+    html, altura = _build_tabla_regional(df_src, "Gestor", "Gestor", "gest")
+    if html:
+        components.html(html, height=altura, scrolling=True)
 
 # ============================================================================
 # DATOS DEMO
@@ -1526,7 +1573,7 @@ with tab2:
 
     st.markdown("<div style='margin-top:16px'></div>", unsafe_allow_html=True)
     subheader("👤 Por Gestor")
-    show_pivot(df_f, "Gestor")
+    show_pivot_gestor_regional(df_f)
 
     st.markdown("<div style='margin-top:16px'></div>", unsafe_allow_html=True)
     subheader("📊 Cumplimiento % por Producto")
@@ -1858,9 +1905,9 @@ with tab4:
                             dni=dni_input.strip(),
                         )
                         if es_dup:
-                            st.info(
-                                f"🔄 Registro actualizado · **{producto_sel_f}** · "
-                                f"{int(ventas_f)} unidades · {fecha_f} (reemplazó el anterior)")
+                            st.warning(
+                                f"⚠️ Ya tenías un registro de **{producto_sel_f}** "
+                                f"el {fecha_f}. Se sumó al acumulado del día.")
                         else:
                             st.success(
                                 f"✅ Guardado · {producto_sel_f} · "
@@ -1882,7 +1929,7 @@ with tab4:
                 for _, row in hoy_grp.iterrows():
                     color = PALETA[PRODUCTOS_ORDEN.index(row["producto"]) % len(PALETA)]
                     st.markdown(f"""
-                    <div style="background:linear-gradient(135deg,#0A2A5E 0%,{color} 100%);
+                    <div style="background:linear-gradient(135deg,#002147 0%,{color} 100%);
                                 border-radius:8px; padding:10px 16px; margin-bottom:8px;
                                 border-left:4px solid #C9982A;
                                 box-shadow:0 3px 10px rgba(0,33,71,0.20);">
@@ -1956,3 +2003,4 @@ with tab4:
             )
         else:
             st.info("No hay registros. Ingresa tu DNI para registrar ventas.")
+ar ventas.")
