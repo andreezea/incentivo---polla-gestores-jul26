@@ -855,6 +855,13 @@ def buscar_por_dni(dni: str):
 # ============================================================================
 ADMIN_PASSWORD = "admin2025"      # ← cambia esta contraseña
 
+# ── Mapa de regiones ──────────────────────────────────────────────────────────
+REGIONES = {
+    "Oriente": ["Amazonas", "Cajamarca", "Loreto", "San Martín", "Ucayali"],
+    "Centro":  ["Huancavelica", "Huánuco", "Junín", "Pasco"],
+}
+DEPTO_A_REGION = {d: r for r, deptos in REGIONES.items() for d in deptos}
+
 # ── Admin session state ───────────────────────────────────────────────────────
 if "es_admin" not in st.session_state:
     st.session_state["es_admin"] = False
@@ -1054,14 +1061,38 @@ df["Total_Puntos"] = (
 # FILTROS GLOBALES
 # ============================================================================
 st.sidebar.markdown("---")
-deptos_opts   = ["Todos"] + sorted(df["Departamento"].unique())
-gestores_opts = ["Todos"] + sorted(df["Gestor"].unique())
-depto_sel     = st.sidebar.selectbox("🏢 Departamento", deptos_opts)
-gestor_sel    = st.sidebar.selectbox("👤 Gestor",       gestores_opts)
 
-df_f = df.copy()
-if depto_sel  != "Todos": df_f = df_f[df_f["Departamento"] == depto_sel]
-if gestor_sel != "Todos": df_f = df_f[df_f["Gestor"]       == gestor_sel]
+# ── Filtro por Región ─────────────────────────────────────────────────────────
+region_sel = st.sidebar.selectbox(
+    "🌎 Región",
+    ["Todas", "Oriente", "Centro"],
+    help="Oriente: Amazonas, Cajamarca, Loreto, San Martín, Ucayali\nCentro: Huancavelica, Huánuco, Junín, Pasco"
+)
+
+# Departamentos disponibles según región elegida
+if region_sel == "Todas":
+    deptos_disponibles = sorted(df["Departamento"].unique())
+else:
+    deptos_disponibles = sorted(
+        d for d in df["Departamento"].unique()
+        if DEPTO_A_REGION.get(d) == region_sel
+    )
+
+deptos_opts   = ["Todos"] + deptos_disponibles
+depto_sel     = st.sidebar.selectbox("🏢 Departamento", deptos_opts)
+
+# Gestores filtrados por región/depto
+df_region = df.copy()
+if region_sel != "Todas":
+    df_region = df_region[df_region["Departamento"].map(DEPTO_A_REGION) == region_sel]
+if depto_sel != "Todos":
+    df_region = df_region[df_region["Departamento"] == depto_sel]
+
+gestores_opts = ["Todos"] + sorted(df_region["Gestor"].unique())
+gestor_sel    = st.sidebar.selectbox("👤 Gestor", gestores_opts)
+
+df_f = df_region.copy()
+if gestor_sel != "Todos": df_f = df_f[df_f["Gestor"] == gestor_sel]
 
 # Agrupado por gestor
 AGG_COLS = {
@@ -1200,6 +1231,60 @@ with tab1:
         {"label":"Mes Ant.", "value":str(int(df_gestor["PD_MesAnt"].sum())),  "color":"#0B5ED7"},
         {"label":"UR",       "value":str(int(df_gestor["PD_UR"].sum())),      "color":"#198754"},
     ])
+
+    st.markdown("<div style='margin-top:20px'></div>", unsafe_allow_html=True)
+
+    # ── Resumen por Región (solo visible cuando se muestra "Todas") ───────────
+    if region_sel == "Todas":
+        subheader("🌎 Comparativo por Región")
+        _col_or, _col_ce = st.columns(2)
+        for _col, _region in [(_col_or, "Oriente"), (_col_ce, "Centro")]:
+            with _col:
+                _deptos_r = REGIONES[_region]
+                _df_r = df_gestor[df_gestor["Departamento"].isin(_deptos_r)]
+                _ventas  = int(_df_r["Venta"].sum())
+                _cuota   = int(_df_r["Cuota"].sum())
+                _pts     = int(_df_r["Total_Puntos"].sum())
+                _gest    = _df_r["Gestor"].nunique()
+                _cumpl   = round(_df_r["Cumplimiento_%"].mean(), 1) if not _df_r.empty else 0
+                _color_r = "#0B5ED7" if _region == "Oriente" else "#198754"
+                st.markdown(f"""
+                <div style="background:{_color_r}; border-radius:12px; padding:18px 20px;
+                            box-shadow:0 4px 14px rgba(0,0,0,0.20); margin-bottom:10px;">
+                    <div style="color:#FFD97A; font-size:17px; font-weight:800;
+                                margin-bottom:10px;">🌎 Región {_region}</div>
+                    <div style="display:flex; gap:12px; flex-wrap:wrap;">
+                        <div style="flex:1; min-width:80px; background:rgba(255,255,255,0.12);
+                                    border-radius:8px; padding:10px 12px; text-align:center;">
+                            <div style="color:rgba(255,255,255,0.75); font-size:10px;
+                                        font-weight:700; text-transform:uppercase;">Gestores</div>
+                            <div style="color:#fff; font-size:22px; font-weight:800;">{_gest}</div>
+                        </div>
+                        <div style="flex:1; min-width:80px; background:rgba(255,255,255,0.12);
+                                    border-radius:8px; padding:10px 12px; text-align:center;">
+                            <div style="color:rgba(255,255,255,0.75); font-size:10px;
+                                        font-weight:700; text-transform:uppercase;">Cumpl.%</div>
+                            <div style="color:#FFD97A; font-size:22px; font-weight:800;">{_cumpl}%</div>
+                        </div>
+                        <div style="flex:1; min-width:80px; background:rgba(255,255,255,0.12);
+                                    border-radius:8px; padding:10px 12px; text-align:center;">
+                            <div style="color:rgba(255,255,255,0.75); font-size:10px;
+                                        font-weight:700; text-transform:uppercase;">Ventas</div>
+                            <div style="color:#fff; font-size:22px; font-weight:800;">{_ventas:,}</div>
+                        </div>
+                        <div style="flex:1; min-width:80px; background:rgba(255,255,255,0.12);
+                                    border-radius:8px; padding:10px 12px; text-align:center;">
+                            <div style="color:rgba(255,255,255,0.75); font-size:10px;
+                                        font-weight:700; text-transform:uppercase;">Puntos</div>
+                            <div style="color:#fff; font-size:22px; font-weight:800;">{_pts:,}</div>
+                        </div>
+                    </div>
+                    <div style="margin-top:10px; color:rgba(255,255,255,0.65); font-size:11px;">
+                        {" · ".join(_deptos_r)}
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+        st.markdown("<div style='margin-top:10px'></div>", unsafe_allow_html=True)
 
     st.markdown("<div style='margin-top:20px'></div>", unsafe_allow_html=True)
 
