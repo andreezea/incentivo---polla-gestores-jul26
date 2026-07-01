@@ -2002,5 +2002,4 @@ with tab4:
                 mime="text/csv", use_container_width=True,
             )
         else:
-            st.info("No hay registros. Ingresa tu DNI para registrar ventas.")
-ar ventas.")
+     st.info("No hay registros. Ingresa tu DNI para registrar ventas.")
