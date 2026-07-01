@@ -208,26 +208,29 @@ COLS_TPF = ["Fecha","Cluster","Subcluster","Producto","Ventas","Cuota"]
 # ══════════════════════════════════════════════════════
 @st.cache_data(show_spinner=False)
 def generate_mayoristas() -> pd.DataFrame:
+    """Genera datos en UNIDADES (activaciones/conexiones), no monetarios."""
     np.random.seed(42)
     months = pd.date_range("2023-01-01","2026-06-01",freq="MS")
-    base   = {"Amazonas":190_000,"Cajamarca":430_000,"Huancavelica":98_000,
-               "Huánuco":315_000,"Junín":590_000,"Loreto":660_000,
-               "Pasco":135_000,"San Martín":285_000,"Ucayali":380_000}
+    # Unidades base por departamento y mes (rango realista: 40-200 u/producto)
+    base   = {"Amazonas":120,"Cajamarca":115,"Huancavelica":48,
+               "Huánuco":98,"Junín":170,"Loreto":185,
+               "Pasco":55,"San Martín":88,"Ucayali":118}
     pmix   = {"Prepago":.44,"Porta Prepago":.26,"Postpago":.20,"OSS":.10}
     rows   = []
     for m in months:
         elapsed  = (m.year-2023)*12 + m.month-1
-        trend    = 1 + .005*elapsed
-        seasonal = 1 + .09*np.sin(2*np.pi*m.month/12)
+        trend    = 1 + .004*elapsed
+        seasonal = 1 + .08*np.sin(2*np.pi*m.month/12)
         for dept in DEPARTMENTS:
             for prod,mix in pmix.items():
-                v = max(base[dept]*mix*trend*seasonal*np.random.normal(1,.055), 0)
-                c = v*np.random.uniform(.91,1.19)
+                v = max(base[dept]*mix*trend*seasonal*np.random.normal(1,.07), 0)
+                c = v*np.random.uniform(.91,1.20)
                 rows.append({"Fecha":m,"Mes":m.strftime("%b %Y"),"Año":m.year,
                               "Departamento":dept,"Producto":prod,
                               "Ventas":round(v),"Cuota":round(c)})
     df = pd.DataFrame(rows)
     df["Cumplimiento"] = (df["Ventas"]/df["Cuota"]*100).round(1)
+    # Fanero = total consolidado
     fan = (df.groupby(["Fecha","Mes","Año","Producto"],as_index=False)
              .agg(Ventas=("Ventas","sum"),Cuota=("Cuota","sum")))
     fan["Departamento"] = "Fanero"
@@ -275,9 +278,10 @@ def fmt(v: float) -> str:
     if v >= 1_000:     return f"S/ {v/1_000:.1f}K"
     return f"S/ {v:,.0f}"
 
-def fmt_tbl(v) -> str:
-    """Formato compacto para celdas de tabla."""
+def fmt_tbl(v, units:bool=False) -> str:
+    """Formato para celdas de tabla. units=True → entero puro sin símbolo."""
     if v is None or (isinstance(v, float) and np.isnan(v)): return "–"
+    if units: return f"{int(round(v)):,}"
     if v >= 1_000_000: return f"{v/1_000_000:.1f}M"
     if v >= 1_000:     return f"{v/1_000:.1f}K"
     return f"{v:,.0f}"
@@ -310,12 +314,13 @@ BASE_LAYOUT = dict(
 # ── Pivot table builder ───────────────────────────────
 def build_pivot_html(df_data:pd.DataFrame, products:list[str],
                      group_col:str, sub_col:str|None,
-                     group_map:dict|None) -> str:
+                     group_map:dict|None, units:bool=False) -> str:
     """
     Construye una tabla HTML estilizada tipo gerencial.
     group_col  : columna de agrupación principal (Cluster / Fanero)
     sub_col    : columna de detalle (Subcluster / Departamento)
     group_map  : dict grupo → [sub1, sub2, ...]  (para orden)
+    units      : True → mostrar enteros puros (sin símbolo monetario)
     """
     # Agregados nivel grupo
     grp_agg = (
@@ -341,6 +346,8 @@ def build_pivot_html(df_data:pd.DataFrame, products:list[str],
         if r.empty: return None,None,None
         return r["Cuota"].iat[0], r["Ventas"].iat[0], r["Cumpl"].iat[0]
 
+    def _f(v): return fmt_tbl(v, units=units)
+
     # ── HTML ──────────────────────────────────────────
     H = ['<div class="pivot-wrap"><table class="pivot-tbl">']
 
@@ -349,10 +356,7 @@ def build_pivot_html(df_data:pd.DataFrame, products:list[str],
     H.append('<th class="th-first" rowspan="2">CLUSTER / SUBCLUSTER</th>')
     for p in products:
         H.append(f'<th class="th-prod" colspan="3">{p}</th>')
-    H.append('</tr>')
-
-    # Header row 2 — Cuota / Ventas / Cumpl%
-    H.append('<tr><th class="th-first-sub"></th>' if False else '<tr>')
+    H.append('</tr><tr>')
     for _ in products:
         H.append('<th class="th-sub">Cuota</th>'
                  '<th class="th-sub">Ventas</th>'
@@ -367,8 +371,8 @@ def build_pivot_html(df_data:pd.DataFrame, products:list[str],
         H.append(f'<td class="td-first">▼ 🔵 {grp}</td>')
         for p in products:
             c,v,pct = row_vals(grp_agg,{group_col:grp},p)
-            H.append(f'<td class="td-num">{fmt_tbl(c)}</td>'
-                     f'<td class="td-num">{fmt_tbl(v)}</td>')
+            H.append(f'<td class="td-num">{_f(c)}</td>'
+                     f'<td class="td-num">{_f(v)}</td>')
             if pct is not None:
                 H.append(f'<td class="td-cumpl" style="color:{cc(pct)}">{pct:.0f}%</td>')
             else:
@@ -384,8 +388,8 @@ def build_pivot_html(df_data:pd.DataFrame, products:list[str],
                 H.append(f'<td class="td-first">{sub}</td>')
                 for p in products:
                     c,v,pct = row_vals(sub_agg,{group_col:grp,sub_col:sub},p)
-                    H.append(f'<td class="td-num">{fmt_tbl(c)}</td>'
-                             f'<td class="td-num">{fmt_tbl(v)}</td>')
+                    H.append(f'<td class="td-num">{_f(c)}</td>'
+                             f'<td class="td-num">{_f(v)}</td>')
                     if pct is not None:
                         H.append(f'<td class="td-cumpl" style="color:{cc(pct)}">{pct:.0f}%</td>')
                     else:
@@ -521,107 +525,167 @@ tab1, tab2, tab3 = st.tabs(["🏬  MAYORISTAS","🏪  TPF","🏛️  CONGRESO"])
 # ────────────────────────────────────────────────────
 with tab1:
 
-    # Filtros
+    # ── FILTROS ────────────────────────────────────────
     st.markdown('<div class="filter-bar">', unsafe_allow_html=True)
-    c1,c2,c3,c4 = st.columns([1.8,2.2,2,2])
-    all_yr  = sorted(df_may_base["Año"].unique())
-    sel_yr  = c1.multiselect("Año", all_yr, default=all_yr, key="m_yr")
-    all_mo  = sorted(df_may_base[df_may_base["Año"].isin(sel_yr)]["Mes"].unique(),
-                     key=lambda x: pd.to_datetime(x,format="%b %Y"))
-    def_mo  = all_mo[-6:] if len(all_mo)>6 else all_mo
-    sel_mo  = c2.multiselect("Mes", all_mo, default=def_mo, key="m_mo")
-    sel_dep = c3.selectbox("Departamento", ["Fanero"]+DEPARTMENTS, key="m_dep")
-    sel_pr  = c4.multiselect("Producto", PRODUCTS_M, default=PRODUCTS_M, key="m_pr")
+    c1, c2, c3 = st.columns(3)
+
+    all_yr  = sorted(df_may_base["Año"].unique(), reverse=True)
+    sel_yr  = c1.selectbox("📅 Año", all_yr, key="m_yr")
+
+    all_mo_yr = ["Acumulado"] + sorted(
+        df_may_base[df_may_base["Año"]==sel_yr]["Mes"].unique(),
+        key=lambda x: pd.to_datetime(x, format="%b %Y"),
+    )
+    sel_mo  = c2.selectbox("🗓️ Mes", all_mo_yr, key="m_mo")
+
+    sel_dep = c3.selectbox("🗺️ Departamento", ["Todos (Fanero)"]+DEPARTMENTS, key="m_dep")
+
+    # Segmentación de productos — pills
+    sel_pr = st.pills(
+        "🛒 Producto",
+        PRODUCTS_M,
+        selection_mode="multi",
+        default=PRODUCTS_M,
+        key="m_pr",
+    )
+    if not sel_pr:
+        st.info("Selecciona al menos un producto.")
+        st.stop()
     st.markdown('</div>', unsafe_allow_html=True)
 
-    df_f = df_may_base[
-        df_may_base["Año"].isin(sel_yr) &
-        df_may_base["Mes"].isin(sel_mo) &
-        (df_may_base["Departamento"]==sel_dep) &
+    # ── FILTRADO ───────────────────────────────────────
+    # Datos base sin Fanero (calculamos Fanero como suma)
+    df_base = df_may_base[
+        (df_may_base["Año"]==sel_yr) &
+        (df_may_base["Departamento"]!="Fanero") &
         df_may_base["Producto"].isin(sel_pr)
     ].copy()
+    if sel_mo != "Acumulado":
+        df_base = df_base[df_base["Mes"]==sel_mo]
 
-    if df_f.empty:
+    if df_base.empty:
         st.warning("⚠️ Sin datos para la selección actual.")
         st.stop()
 
-    # KPIs
-    tv = df_f["Ventas"].sum(); tc = df_f["Cuota"].sum()
-    cp = tv/tc*100 if tc else 0
-    n  = len(sel_mo)
-    pi = max(0, all_mo.index(sel_mo[0])-n) if sel_mo else 0
-    pv = df_may_base[df_may_base["Mes"].isin(all_mo[pi:pi+n]) &
-                     (df_may_base["Departamento"]==sel_dep) &
-                     df_may_base["Producto"].isin(sel_pr)]["Ventas"].sum()
-    dv = (tv-pv)/pv*100 if pv else 0
+    # Datos del departamento seleccionado para KPIs
+    if sel_dep == "Todos (Fanero)":
+        df_kpi = df_base.copy()
+    else:
+        df_kpi = df_base[df_base["Departamento"]==sel_dep].copy()
 
-    st.markdown('<div class="sec-title">📌 Indicadores Clave del Período</div>', unsafe_allow_html=True)
+    # ── KPIs ───────────────────────────────────────────
+    tv = df_kpi["Ventas"].sum()
+    tc = df_kpi["Cuota"].sum()
+    cp = tv/tc*100 if tc else 0
+    br = tc - tv
+
+    # Delta vs mes anterior (si se filtra por mes específico)
+    if sel_mo != "Acumulado":
+        mo_idx   = all_mo_yr.index(sel_mo)
+        prev_mo  = all_mo_yr[mo_idx-1] if mo_idx > 1 else None  # idx=0 es "Acumulado"
+        if prev_mo and prev_mo != "Acumulado":
+            df_prev = df_may_base[
+                (df_may_base["Año"]==sel_yr) &
+                (df_may_base["Mes"]==prev_mo) &
+                df_may_base["Producto"].isin(sel_pr) &
+                (df_may_base["Departamento"] == (
+                    "Fanero" if sel_dep=="Todos (Fanero)" else sel_dep))
+            ]
+            pv = df_prev["Ventas"].sum()
+        else:
+            pv = 0
+    else:
+        pv = 0
+    dv = (tv-pv)/pv*100 if pv else None
+
+    st.markdown('<div class="sec-title">📌 Indicadores Clave</div>', unsafe_allow_html=True)
     k1,k2,k3,k4 = st.columns(4)
-    k1.markdown(kpi("Ventas Totales",fmt(tv),dv,"vs período ant."), unsafe_allow_html=True)
-    k2.markdown(kpi("Cuota Total",fmt(tc)),                          unsafe_allow_html=True)
-    k3.markdown(kpi("% Cumplimiento",f"{cp:.1f}%",color=cc(cp)),    unsafe_allow_html=True)
-    k4.markdown(kpi("Brecha vs Cuota",fmt(abs(tc-tv)),
-                    color=C_ACCENT if tc>tv else C_SUCCESS),         unsafe_allow_html=True)
+    k1.markdown(kpi("Ventas (Unid.)",  f"{int(tv):,}", dv, "vs mes ant."),             unsafe_allow_html=True)
+    k2.markdown(kpi("Cuota (Unid.)",   f"{int(tc):,}"),                                 unsafe_allow_html=True)
+    k3.markdown(kpi("% Cumplimiento",  f"{cp:.1f}%",   color=cc(cp)),                  unsafe_allow_html=True)
+    k4.markdown(kpi("Brecha (Unid.)",  f"{int(abs(br)):,}",
+                    color=C_ACCENT if br>0 else C_SUCCESS),                             unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # Tendencia mensual
-    st.markdown('<div class="sec-title">📈 Tendencia Mensual</div>', unsafe_allow_html=True)
-    tr = (df_f.groupby("Fecha").agg(Ventas=("Ventas","sum"),Cuota=("Cuota","sum"))
-              .reset_index().sort_values("Fecha"))
-    tr["Cumpl"] = tr["Ventas"]/tr["Cuota"]*100
-    fig = make_subplots(specs=[[{"secondary_y":True}]])
-    fig.add_trace(go.Bar(x=tr["Fecha"],y=tr["Cuota"],name="Cuota",marker_color=C_LIGHT,opacity=.85),secondary_y=False)
-    fig.add_trace(go.Bar(x=tr["Fecha"],y=tr["Ventas"],name="Ventas",marker_color=C_PRIMARY,opacity=.92),secondary_y=False)
-    fig.add_trace(go.Scatter(x=tr["Fecha"],y=tr["Cumpl"],name="% Cumpl.",mode="lines+markers",
-                              line=dict(color=C_ACCENT,width=2.5),marker=dict(size=6)),secondary_y=True)
-    fig.add_hline(y=100,line_dash="dot",line_color=C_SUCCESS,secondary_y=True,
-                  annotation_text=" Meta 100%",annotation_position="top right",annotation_font_color=C_SUCCESS)
-    fig.update_layout(**BASE_LAYOUT,height=340,barmode="overlay")
-    fig.update_yaxes(title_text="Monto (S/)",secondary_y=False,tickformat=",.0f",gridcolor="#E8EDF2")
-    fig.update_yaxes(title_text="Cumplimiento (%)",secondary_y=True,showgrid=False)
-    st.plotly_chart(fig,use_container_width=True)
-
-    # Tabla pivote Mayoristas
+    # ── TABLA PIVOTE ───────────────────────────────────
     st.markdown('<div class="sec-title">📊 Tabla de Desempeño por Departamento</div>', unsafe_allow_html=True)
 
-    # Filtrar solo meses seleccionados, todos los departamentos (sin Fanero como subgrupo)
-    df_tbl_may = df_may_base[
-        df_may_base["Mes"].isin(sel_mo) &
-        df_may_base["Producto"].isin(sel_pr) &
-        (df_may_base["Departamento"] != "Fanero")
-    ].copy()
-
-    # Fanero como grupo único con depts como sub
-    fanero_map = {"Fanero (Total)": DEPARTMENTS}
-
-    # Renombrar Departamento → Cluster para reutilizar función
-    df_tbl_may2 = df_tbl_may.rename(columns={"Departamento":"Sub"})
-    df_tbl_may2["Grupo"] = "Fanero (Total)"
+    df_tbl = df_base.rename(columns={"Departamento":"Sub"}).copy()
+    df_tbl["Grupo"] = "Fanero (Total)"
 
     html_may = build_pivot_html(
-        df_data    = df_tbl_may2,
-        products   = sel_pr,
-        group_col  = "Grupo",
-        sub_col    = "Sub",
-        group_map  = {"Fanero (Total)": DEPARTMENTS},
+        df_data   = df_tbl,
+        products  = list(sel_pr),
+        group_col = "Grupo",
+        sub_col   = "Sub",
+        group_map = {"Fanero (Total)": DEPARTMENTS},
+        units     = True,   # ← unidades puras, sin símbolo monetario
     )
     st.markdown(html_may, unsafe_allow_html=True)
 
-    # Gráfico departamentos
-    st.markdown('<div class="sec-title">🗺️ Comparativo por Departamento</div>', unsafe_allow_html=True)
-    da = (df_tbl_may.groupby("Departamento")
-                    .agg(Ventas=("Ventas","sum"),Cuota=("Cuota","sum")).reset_index())
-    da["Cumpl"] = da["Ventas"]/da["Cuota"]*100
-    da = da.sort_values("Cumpl",ascending=True)
-    bc = da["Cumpl"].apply(cc).tolist()
-    fig2 = go.Figure()
-    fig2.add_trace(go.Bar(y=da["Departamento"],x=da["Cuota"],name="Cuota",orientation="h",marker_color=C_LIGHT))
-    fig2.add_trace(go.Bar(y=da["Departamento"],x=da["Ventas"],name="Ventas",orientation="h",
-                           marker_color=bc,text=[f"{c:.0f}%" for c in da["Cumpl"]],
-                           textposition="inside",textfont=dict(color="white",size=11)))
-    fig2.update_layout(**BASE_LAYOUT,height=310,barmode="overlay",xaxis=dict(tickformat=",.0f",gridcolor="#E8EDF2"))
-    st.plotly_chart(fig2,use_container_width=True)
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # ── GRÁFICOS ───────────────────────────────────────
+    gc1, gc2 = st.columns([3, 2])
+
+    # Gráfico de columnas — Ventas vs Cuota por Departamento
+    with gc1:
+        st.markdown('<div class="sec-title">📊 Gráfico de Columnas · Ventas vs Cuota</div>', unsafe_allow_html=True)
+        da = (df_base.groupby("Departamento")
+                     .agg(Ventas=("Ventas","sum"), Cuota=("Cuota","sum"))
+                     .reset_index())
+        da["Cumpl"] = da["Ventas"]/da["Cuota"]*100
+        da = da.sort_values("Ventas", ascending=False)
+
+        fig_col = go.Figure()
+        fig_col.add_trace(go.Bar(
+            x=da["Departamento"], y=da["Cuota"],
+            name="Cuota", marker_color=C_LIGHT,
+            text=da["Cuota"].apply(lambda v: f"{int(v):,}"),
+            textposition="outside", textfont=dict(size=10),
+        ))
+        fig_col.add_trace(go.Bar(
+            x=da["Departamento"], y=da["Ventas"],
+            name="Ventas", marker_color=C_PRIMARY, opacity=0.92,
+            text=[f"{c:.0f}%" for c in da["Cumpl"]],
+            textposition="inside", textfont=dict(color="white", size=11),
+        ))
+        fig_col.update_layout(
+            **BASE_LAYOUT, height=340, barmode="group",
+            yaxis=dict(title="Unidades", tickformat=",", gridcolor="#E8EDF2"),
+            xaxis=dict(tickangle=-20),
+        )
+        st.plotly_chart(fig_col, use_container_width=True)
+
+    # Gráfico circular — Mix de ventas por Producto
+    with gc2:
+        st.markdown('<div class="sec-title">🥧 Mix de Ventas por Producto</div>', unsafe_allow_html=True)
+        pa = (df_base.groupby("Producto")
+                     .agg(Ventas=("Ventas","sum"))
+                     .reset_index())
+        fig_pie = go.Figure(go.Pie(
+            labels=pa["Producto"],
+            values=pa["Ventas"],
+            hole=0.46,
+            marker=dict(
+                colors=[C_PRIMARY, C_SECONDARY, "#4A90D9", "#7EB3E2"],
+                line=dict(color="white", width=2),
+            ),
+            textinfo="percent+label",
+            textfont=dict(size=11),
+            textposition="inside",
+        ))
+        total_u = int(pa["Ventas"].sum())
+        fig_pie.update_layout(
+            **BASE_LAYOUT, height=340, showlegend=False,
+            annotations=[dict(
+                text=f"<b>{total_u:,}</b><br>unid.",
+                x=0.5, y=0.5, font_size=13, showarrow=False,
+                font_color=C_PRIMARY,
+            )],
+        )
+        st.plotly_chart(fig_pie, use_container_width=True)
 
 
 # ────────────────────────────────────────────────────
