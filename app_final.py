@@ -547,6 +547,115 @@ def show_pivot(df_src, index_col):
     prods = [p for p in PRODUCTOS_ORDEN if any(c[0]==p for c in pv.columns)]
     st.markdown(_pivot_to_html(pv, index_col, prods), unsafe_allow_html=True)
 
+
+def show_pivot_regional(df_src):
+    """Tabla Por Departamento con regiones colapsables (Oriente / Centro)."""
+    import streamlit.components.v1 as components
+
+    avail = [p for p in PRODUCTOS_ORDEN if p in df_src["Producto"].unique()]
+    if not avail:
+        st.info("Sin datos de producto.")
+        return
+
+    # ── Pivot por departamento ────────────────────────────────────────────────
+    pv_dept = build_pivot(df_src, "Departamento")
+
+    # ── Pivot por región ──────────────────────────────────────────────────────
+    df_r = df_src.copy()
+    df_r["Region"] = df_r["Departamento"].map(DEPTO_A_REGION).fillna("Otros")
+    pv_reg = build_pivot(df_r, "Region")
+
+    # ── Estilos base ──────────────────────────────────────────────────────────
+    CELL  = "padding:7px 11px;border:1px solid #BFCDE0;font-size:12.5px;text-align:right;background:#F5F7FB;"
+    IDX   = "padding:7px 14px;border:1px solid #BFCDE0;font-size:12.5px;background:#EBF0FA;text-align:left;"
+    REG   = "padding:9px 14px;border:1px solid #0A2A5E;font-size:13px;font-weight:800;color:#FFD97A;background:#0A2A5E;text-align:left;cursor:pointer;user-select:none;"
+    REGC  = "padding:7px 11px;border:1px solid #0A2A5E;font-size:12.5px;text-align:right;background:#0A2A5E;color:#FFD97A;font-weight:700;"
+    HEAD1 = "padding:7px 12px;background:#0A2A5E;color:#FFF;font-size:11px;font-weight:700;text-align:center;border:1px solid #1565C0;text-transform:uppercase;letter-spacing:0.5px;"
+    HEAD2 = "padding:5px 10px;background:#0B5ED7;color:#FFF;font-size:10.5px;font-weight:700;text-align:center;border:1px solid #1976D2;"
+
+    # ── Cabecera ──────────────────────────────────────────────────────────────
+    h1 = f'<th style="{HEAD1};text-align:left" rowspan="2">DEPARTAMENTO</th>'
+    h2 = ""
+    for p in avail:
+        h1 += f'<th style="{HEAD1}" colspan="3">{p}</th>'
+        for m in ["Cuota", "Ventas", "Cumpl%"]:
+            h2 += f'<th style="{HEAD2}">{m}</th>'
+    thead = f"<thead><tr>{h1}</tr><tr>{h2}</tr></thead>"
+
+    # ── Helper: celdas de una fila del pivot ──────────────────────────────────
+    def _celdas(pv, ix, estiloCell, estiloNum):
+        out = ""
+        for p in avail:
+            cu = pv.loc[ix, (p, "Cuota")]  if (p, "Cuota")  in pv.columns else 0
+            ve = pv.loc[ix, (p, "Ventas")] if (p, "Ventas") in pv.columns else 0
+            cm = pv.loc[ix, (p, "Cumpl%")] if (p, "Cumpl%") in pv.columns else 0
+            try: cm_n = float(str(cm).replace("%", ""))
+            except: cm_n = 0
+            if estiloNum == "region":
+                clr = "#FFD97A"
+            else:
+                clr = _cumpl_color(cm_n)
+            out += f'<td style="{estiloCell}">{int(cu) if pd.notna(cu) else "-"}</td>'
+            out += f'<td style="{estiloCell}">{int(ve) if pd.notna(ve) else "-"}</td>'
+            out += f'<td style="{estiloCell}color:{clr};font-weight:800;">{int(cm_n) if pd.notna(cm) else "-"}%</td>'
+        return out
+
+    # ── Cuerpo: iterar regiones ───────────────────────────────────────────────
+    tbody = "<tbody>"
+    orden_regiones = [r for r in ["Oriente", "Centro", "Otros"] if r in pv_reg.index]
+
+    for region in orden_regiones:
+        rid = region.lower().replace(" ", "_")
+        # Fila de región (colapsable)
+        reg_celdas = _celdas(pv_reg, region, REGC, "region") if region in pv_reg.index else ""
+        tbody += (
+            f'<tr onclick="toggleRegion(\'{rid}\')" title="Clic para expandir/colapsar">'
+            f'<td style="{REG}"><span id="ind-{rid}" style="margin-right:8px;font-size:14px;">▼</span>{region}</td>'
+            f'{reg_celdas}</tr>'
+        )
+        # Filas de departamento
+        deptos_region = sorted(REGIONES.get(region, [d for d in pv_dept.index
+                                                      if DEPTO_A_REGION.get(d) == region
+                                                      or (region == "Otros" and d not in DEPTO_A_REGION)]))
+        for depto in deptos_region:
+            if depto not in pv_dept.index:
+                continue
+            dept_celdas = _celdas(pv_dept, depto, CELL, "dept")
+            tbody += (
+                f'<tr class="deptrow-{rid}" style="display:table-row;">'
+                f'<td style="{IDX}color:#0A2A5E;">&nbsp;&nbsp;&nbsp;&nbsp;{depto}</td>'
+                f'{dept_celdas}</tr>'
+            )
+    tbody += "</tbody>"
+
+    # ── JavaScript de colapso ─────────────────────────────────────────────────
+    js = """
+    <script>
+    var _expanded = {};
+    function toggleRegion(rid) {
+        var rows = document.querySelectorAll('.deptrow-' + rid);
+        var ind  = document.getElementById('ind-' + rid);
+        _expanded[rid] = !_expanded[rid];
+        rows.forEach(function(r) {
+            r.style.display = _expanded[rid] ? 'none' : 'table-row';
+        });
+        ind.textContent = _expanded[rid] ? '▶' : '▼';
+    }
+    </script>
+    """
+
+    n_dept = sum(len(REGIONES.get(r, [])) for r in orden_regiones)
+    altura = 90 + len(orden_regiones) * 42 + n_dept * 38 + 20
+
+    html = (
+        '<div style="overflow-x:auto;border-radius:10px;border:1.5px solid #BFCDE0;'
+        'box-shadow:0 2px 8px rgba(10,42,94,0.09);margin-bottom:4px;">'
+        '<table style="border-collapse:collapse;width:100%;font-family:Arial,sans-serif;">'
+        + thead + tbody +
+        '</table></div>' + js
+    )
+    components.html(html, height=altura, scrolling=True)
+
 # ============================================================================
 # DATOS DEMO
 # ============================================================================
@@ -1413,7 +1522,7 @@ with tab2:
         st.stop()
 
     subheader("🏢 Por Departamento")
-    show_pivot(df_f, "Departamento")
+    show_pivot_regional(df_f)
 
     st.markdown("<div style='margin-top:16px'></div>", unsafe_allow_html=True)
     subheader("👤 Por Gestor")
