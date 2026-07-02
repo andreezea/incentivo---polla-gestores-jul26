@@ -1180,6 +1180,23 @@ def calcular_cuota_diaria_dinamica(df_mensual: pd.DataFrame,
 
 df_raw = calcular_cuota_diaria_dinamica(df_raw, df_diario)
 
+# ── Agregar gestores del mapa DNI que no están en el Excel ───────────────────
+# Permite que aparezcan en "Detalle por Producto" con cuota y ventas en 0
+_mapa_dni_base = cargar_dni_map()
+if _mapa_dni_base:
+    _gestores_excel = set(df_raw["Gestor"].unique()) if "Gestor" in df_raw.columns else set()
+    _nuevos = [
+        {"Gestor": v["gestor"], "Departamento": v["departamento"],
+         "Mes": "", "Producto": p,
+         "Cuota": 0, "Venta": 0, "VentaMesAnterior": 0,
+         "CuotaDiaria": 0, "VentaDiaria": 0.0}
+        for dni, v in _mapa_dni_base.items()
+        if v["gestor"] not in _gestores_excel
+        for p in PRODUCTOS_ORDEN
+    ]
+    if _nuevos:
+        df_raw = pd.concat([df_raw, pd.DataFrame(_nuevos)], ignore_index=True)
+
 # ── Procesar base ────────────────────────────────────────────────────────────
 df = procesar(df_raw)
 
@@ -2046,18 +2063,21 @@ with tab4:
         subheader("📜 Historial General")
         if not df_hist_all.empty:
             cols_show = [c for c in ["id","timestamp","gestor","producto","fecha","venta_dia"]
-                         if c in df_hist_all.columns]
+                         if c in df_hist_all.colu                         if c in df_hist_all.columns]
             df_show = df_hist_all[cols_show].head(100).copy()
-            rename  = ["ID","Registrado","Gestor","Producto","Fecha","Ventas"]
+            rename = ["ID","Registrado","Gestor","Producto","Fecha","Ventas"]
             df_show.columns = rename[:len(cols_show)]
             if "Ventas" in df_show.columns:
                 df_show["Ventas"] = df_show["Ventas"].astype(int)
             st.dataframe(df_show, use_container_width=True, hide_index=True)
+
             csv_bytes = df_hist_all.to_csv(index=False).encode("utf-8")
             st.download_button(
                 label="⬇️ Descargar historial completo (.csv)",
-                data=csv_bytes, file_name="historial_ventas.csv",
-                mime="text/csv", use_container_width=True,
+                data=csv_bytes,
+                file_name="historial_ventas.csv",
+                mime="text/csv",
+                use_container_width=True,
             )
         else:
             st.info("No hay registros. Ingresa tu DNI para registrar ventas.")
