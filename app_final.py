@@ -1098,90 +1098,14 @@ st.sidebar.markdown(
     </div>''',
     unsafe_allow_html=True
 )
-st.sidebar.title("⚙️ Configuración")
-
-# ── Carga de archivo Excel (solo cuando admin está activo) ───────────────────
-if st.session_state.get("es_admin"):
-    with st.sidebar.expander("📤 Cargar datos Excel", expanded=True):
-        archivo_subido = st.file_uploader("Archivo .xlsx", type=["xlsx"])
-        if archivo_subido:
-            bytes_data = archivo_subido.read()
-            with open(DATA_PATH, "wb") as f:
-                f.write(bytes_data)
-            st.success("✅ Datos guardados — todos los usuarios verán la actualización")
-else:
-    archivo_subido = None
-
 # ── es_admin desde session_state ─────────────────────────────────────────────
 es_admin = st.session_state.get("es_admin", False)
-if not es_admin:
-    archivo_subido = None
 
-if archivo_subido:
-    import io
-    archivo_subido.seek(0)
-    df_raw, df_diario, df_sem_ant = cargar_excel(io.BytesIO(archivo_subido.read()))
-elif os.path.exists(DATA_PATH):
+if os.path.exists(DATA_PATH):
     df_raw, df_diario, df_sem_ant = cargar_excel(DATA_PATH)
-    if es_admin:
-        import time
-        mod_time = os.path.getmtime(DATA_PATH)
-        fecha_mod = date.fromtimestamp(mod_time).strftime("%d/%m/%Y %H:%M")
-        st.sidebar.caption(f"📂 Datos activos · cargados el {fecha_mod}")
 else:
     df_raw, df_diario = datos_demo()
     df_sem_ant = pd.DataFrame()
-    if es_admin:
-        st.sidebar.info("No hay datos guardados. Sube tu Excel para activarlos.")
-
-# ── Gestión DNI en el sidebar (solo admin, requiere df_raw) ──────────────────
-_depto_map_sb = (df_raw.drop_duplicates("Gestor").set_index("Gestor")["Departamento"].to_dict()
-                 if "Gestor" in df_raw.columns and "Departamento" in df_raw.columns else {})
-_gestores_sb  = sorted(df_raw["Gestor"].unique().tolist()) if "Gestor" in df_raw.columns else []
-
-with st.sidebar.expander("👥 Gestores · DNI"):
-    if not es_admin:
-        st.info("Solo el administrador puede gestionar DNIs.")
-    else:
-        mapa_dni = cargar_dni_map()
-        if mapa_dni:
-            df_mapa_sb = pd.DataFrame(
-                [{"DNI": k, "Nombre": v["gestor"], "Depto": v["departamento"]}
-                 for k, v in mapa_dni.items()])
-            st.dataframe(df_mapa_sb, hide_index=True, use_container_width=True)
-        else:
-            st.caption("Sin gestores registrados aún.")
-
-        st.markdown("**Agregar gestor**")
-        sb_dni  = st.text_input("DNI", key="sb_dni_add", max_chars=15)
-        if _gestores_sb:
-            sb_gst  = st.selectbox("Gestor", _gestores_sb, key="sb_gst_add")
-            sb_dept = _depto_map_sb.get(sb_gst, "")
-            st.caption(f"Departamento: {sb_dept}")
-        else:
-            sb_gst  = st.text_input("Gestor", key="sb_gst_txt")
-            sb_dept = st.text_input("Departamento", key="sb_dept_txt")
-
-        if st.button("➕ Agregar gestor", key="btn_add_dni_sb"):
-            if sb_dni.strip() and sb_gst:
-                mapa_dni[sb_dni.strip()] = {"gestor": sb_gst, "departamento": sb_dept}
-                guardar_dni_map(mapa_dni)
-                st.success(f"✅ {sb_gst} · DNI {sb_dni.strip()}")
-                st.rerun()
-            else:
-                st.error("Completa DNI y nombre.")
-
-        if mapa_dni:
-            st.markdown("**Eliminar gestor**")
-            dni_quitar = st.selectbox(
-                "DNI a quitar",
-                list(mapa_dni.keys()),
-                format_func=lambda d: f"{d} — {mapa_dni[d]['gestor']}",
-                key="dni_quitar_sb")
-            if st.button("🗑️ Quitar", key="btn_del_dni_sb"):
-                del mapa_dni[dni_quitar]
-                guardar_dni_map(mapa_dni)
-                st.rerun()
 
 if not df_diario.empty:
     try:
@@ -1371,14 +1295,15 @@ with st.sidebar.expander("🆕 Motor por producto"):
 """)
 
 # ============================================================================
-# BOTÓN ADMIN — esquina superior derecha
+# MENÚ ☰ — esquina superior derecha (Admin · Configuración · Gestores DNI)
 # ============================================================================
-_col_space, _col_adm = st.columns([8, 2])
-with _col_adm:
-    _lbl = "🔓 Admin activo" if st.session_state.get("es_admin") else "🔐 Administrador"
-    with st.popover(_lbl, use_container_width=True):
+_col_sp, _col_menu = st.columns([9, 1])
+with _col_menu:
+    with st.popover("☰", use_container_width=True):
+
+        # ─── Administrador ────────────────────────────────────────────────────
+        st.markdown("##### 🔐 Administrador")
         if not st.session_state.get("es_admin"):
-            st.markdown("#### Acceso Administrador")
             _pwd = st.text_input("Contraseña", type="password", key="admin_pwd_top")
             if st.button("Entrar", key="btn_admin_enter", use_container_width=True):
                 if _pwd == ADMIN_PASSWORD:
@@ -1388,11 +1313,68 @@ with _col_adm:
                     st.error("Contraseña incorrecta")
         else:
             st.success("✅ Modo administrador activo")
-            st.caption("El menú de carga de datos aparece en el sidebar izquierdo.")
-            st.markdown("---")
             if st.button("🔓 Cerrar sesión", key="logout_top", use_container_width=True):
                 st.session_state["es_admin"] = False
                 st.rerun()
+
+        # ─── Configuración y Gestores DNI (solo admin) ───────────────────────
+        if st.session_state.get("es_admin"):
+            st.markdown("---")
+            st.markdown("##### ⚙️ Configuración")
+            _fu = st.file_uploader("Archivo .xlsx", type=["xlsx"], key="fu_hamburger")
+            if _fu is not None:
+                _fu_bytes = _fu.read()
+                with open(DATA_PATH, "wb") as _f:
+                    _f.write(_fu_bytes)
+                st.success("✅ Datos guardados — recargando…")
+                st.rerun()
+            if os.path.exists(DATA_PATH):
+                import time as _time
+                _mod = os.path.getmtime(DATA_PATH)
+                _fecha_mod = date.fromtimestamp(_mod).strftime("%d/%m/%Y %H:%M")
+                st.caption(f"📂 Cargado el {_fecha_mod}")
+
+            st.markdown("---")
+            st.markdown("##### 👥 Gestores · DNI")
+            _depto_map_sb = (df_raw.drop_duplicates("Gestor").set_index("Gestor")["Departamento"].to_dict()
+                             if "Gestor" in df_raw.columns and "Departamento" in df_raw.columns else {})
+            _gestores_sb  = sorted(df_raw["Gestor"].unique().tolist()) if "Gestor" in df_raw.columns else []
+            mapa_dni = cargar_dni_map()
+            if mapa_dni:
+                df_mapa_sb = pd.DataFrame(
+                    [{"DNI": k, "Nombre": v["gestor"], "Depto": v["departamento"]}
+                     for k, v in mapa_dni.items()])
+                st.dataframe(df_mapa_sb, hide_index=True, use_container_width=True)
+            else:
+                st.caption("Sin gestores registrados aún.")
+            st.markdown("**Agregar gestor**")
+            sb_dni = st.text_input("DNI", key="sb_dni_add", max_chars=15)
+            if _gestores_sb:
+                sb_gst  = st.selectbox("Gestor", _gestores_sb, key="sb_gst_add")
+                sb_dept = _depto_map_sb.get(sb_gst, "")
+                st.caption(f"Departamento: {sb_dept}")
+            else:
+                sb_gst  = st.text_input("Gestor", key="sb_gst_txt")
+                sb_dept = st.text_input("Departamento", key="sb_dept_txt")
+            if st.button("➕ Agregar gestor", key="btn_add_dni_sb"):
+                if sb_dni.strip() and sb_gst:
+                    mapa_dni[sb_dni.strip()] = {"gestor": sb_gst, "departamento": sb_dept}
+                    guardar_dni_map(mapa_dni)
+                    st.success(f"✅ {sb_gst} · DNI {sb_dni.strip()}")
+                    st.rerun()
+                else:
+                    st.error("Completa DNI y nombre.")
+            if mapa_dni:
+                st.markdown("**Eliminar gestor**")
+                dni_quitar = st.selectbox(
+                    "DNI a quitar",
+                    list(mapa_dni.keys()),
+                    format_func=lambda d: f"{d} — {mapa_dni[d]['gestor']}",
+                    key="dni_quitar_sb")
+                if st.button("🗑️ Quitar", key="btn_del_dni_sb"):
+                    del mapa_dni[dni_quitar]
+                    guardar_dni_map(mapa_dni)
+                    st.rerun()
 
 # ============================================================================
 # TABS
