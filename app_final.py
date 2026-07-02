@@ -1362,14 +1362,17 @@ with _col_menu:
             else:
                 st.caption("Sin gestores registrados aún.")
             st.markdown("**Agregar gestor**")
+            _deptos_validos = sorted([d for deptos in REGIONES.values() for d in deptos])
             sb_dni  = st.text_input("DNI", key="sb_dni_add", max_chars=15)
             sb_gst  = st.text_input("Nombre completo", key="sb_gst_txt")
-            sb_dept = st.text_input("Departamento", key="sb_dept_txt")
+            sb_dept = st.selectbox("Departamento", _deptos_validos, key="sb_dept_sel")
+            _region_preview = DEPTO_A_REGION.get(sb_dept, "—")
+            st.caption(f"Región: {_region_preview}")
             if st.button("➕ Agregar gestor", key="btn_add_dni_sb"):
                 if sb_dni.strip() and sb_gst.strip():
-                    mapa_dni[sb_dni.strip()] = {"gestor": sb_gst.strip(), "departamento": sb_dept.strip()}
+                    mapa_dni[sb_dni.strip()] = {"gestor": sb_gst.strip(), "departamento": sb_dept}
                     guardar_dni_map(mapa_dni)
-                    st.success(f"✅ {sb_gst.strip()} · DNI {sb_dni.strip()}")
+                    st.success(f"✅ {sb_gst.strip()} · {sb_dept} · DNI {sb_dni.strip()}")
                     st.rerun()
                 else:
                     st.error("Completa DNI y nombre.")
@@ -2063,7 +2066,7 @@ with tab4:
         subheader("📜 Historial General")
         if not df_hist_all.empty:
             cols_show = [c for c in ["id","timestamp","gestor","producto","fecha","venta_dia"]
-                         if c in df_hist_all.colu                         if c in df_hist_all.columns]
+                         if c in df_hist_all.columns]
             df_show = df_hist_all[cols_show].head(100).copy()
             rename = ["ID","Registrado","Gestor","Producto","Fecha","Ventas"]
             df_show.columns = rename[:len(cols_show)]
