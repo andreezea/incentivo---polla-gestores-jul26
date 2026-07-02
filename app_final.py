@@ -657,7 +657,7 @@ def _build_tabla_regional(df_src, col_idx, label_idx, tabla_id):
         )
         # Filas hijas (departamentos o gestores de esa región)
         if col_idx == "Gestor":
-            # gestores cuyo departamento pertenece a la región
+            # gestores cuyo departamento pertenece a la región — orden A-Z sin distinción may/min
             gest_region = sorted([
                 g for g in pv_item.index
                 if DEPTO_A_REGION.get(
@@ -668,7 +668,7 @@ def _build_tabla_regional(df_src, col_idx, label_idx, tabla_id):
                     df_src[df_src["Gestor"] == g]["Departamento"].iloc[0]
                     if not df_src[df_src["Gestor"] == g].empty else "", None
                 ) is None)
-            ])
+            ], key=lambda x: x.lower())
             for item in gest_region:
                 if item not in pv_item.index:
                     continue
@@ -2078,8 +2078,11 @@ with tab4:
                             f"{r['fecha'].values[0]} · {int(r['venta_dia'].values[0])} u.")
 
                 id_a_eliminar = st.selectbox(
-                    "Selecciona el registro", ids_propios,
-                    format_func=_label, key="del_propio_id")
+                    "Selecciona el registro",
+                    ids_propios,
+                    format_func=_label,
+                    key="del_propio_id",
+                )
                 if st.button("❌ Eliminar este registro", key="btn_del_propio"):
                     es_mio = ((df_mis["id"] == id_a_eliminar) &
                               (df_mis["gestor"] == gestor_activo)).any()
