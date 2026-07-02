@@ -1377,6 +1377,35 @@ with _col_menu:
                 else:
                     st.error("Completa DNI y nombre.")
             if mapa_dni:
+                st.markdown("**Modificar gestor**")
+                dni_editar = st.selectbox(
+                    "Selecciona gestor",
+                    list(mapa_dni.keys()),
+                    format_func=lambda d: f"{d} — {mapa_dni[d]['gestor']}",
+                    key="dni_editar_sb")
+                _curr = mapa_dni[dni_editar]
+                _deptos_validos2 = sorted([d for deptos in REGIONES.values() for d in deptos])
+                _idx_dept = (_deptos_validos2.index(_curr["departamento"])
+                             if _curr["departamento"] in _deptos_validos2 else 0)
+                ed_dni  = st.text_input("Nuevo DNI (deja igual si no cambia)",
+                                        value=dni_editar, key="ed_dni_txt", max_chars=15)
+                ed_gst  = st.text_input("Nombre completo",
+                                        value=_curr["gestor"], key="ed_gst_txt")
+                ed_dept = st.selectbox("Departamento", _deptos_validos2,
+                                       index=_idx_dept, key="ed_dept_sel")
+                st.caption(f"Región: {DEPTO_A_REGION.get(ed_dept, '—')}")
+                if st.button("💾 Guardar cambios", key="btn_edit_dni_sb"):
+                    if ed_dni.strip() and ed_gst.strip():
+                        if ed_dni.strip() != dni_editar:
+                            del mapa_dni[dni_editar]
+                        mapa_dni[ed_dni.strip()] = {"gestor": ed_gst.strip(),
+                                                    "departamento": ed_dept}
+                        guardar_dni_map(mapa_dni)
+                        st.success(f"✅ Actualizado: {ed_gst.strip()} · {ed_dept}")
+                        st.rerun()
+                    else:
+                        st.error("Completa DNI y nombre.")
+
                 st.markdown("**Eliminar gestor**")
                 dni_quitar = st.selectbox(
                     "DNI a quitar",
