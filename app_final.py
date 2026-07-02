@@ -437,7 +437,7 @@ def calcular_puntos_producto(df_mensual: pd.DataFrame, df_diario: pd.DataFrame) 
                 pd_semanal       = int(semanas_ok) * PTS_CUOTA_SEMANAL
 
         # 3. Cuota mensual
-        pd_mensual = PTS_CUOTA_MENSUAL if venta_m >= cuota_m else 0
+        pd_mensual = PTS_CUOTA_MENSUAL if (cuota_m > 0 and venta_m >= cuota_m) else 0
 
         # 4. Mes anterior
         pd_mes_ant = PTS_MES_ANTERIOR if (venta_ant > 0 and venta_m > venta_ant) else 0
