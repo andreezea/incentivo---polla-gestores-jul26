@@ -1336,9 +1336,6 @@ with _col_menu:
 
             st.markdown("---")
             st.markdown("##### 👥 Gestores · DNI")
-            _depto_map_sb = (df_raw.drop_duplicates("Gestor").set_index("Gestor")["Departamento"].to_dict()
-                             if "Gestor" in df_raw.columns and "Departamento" in df_raw.columns else {})
-            _gestores_sb  = sorted(df_raw["Gestor"].unique().tolist()) if "Gestor" in df_raw.columns else []
             mapa_dni = cargar_dni_map()
             if mapa_dni:
                 df_mapa_sb = pd.DataFrame(
@@ -1348,19 +1345,14 @@ with _col_menu:
             else:
                 st.caption("Sin gestores registrados aún.")
             st.markdown("**Agregar gestor**")
-            sb_dni = st.text_input("DNI", key="sb_dni_add", max_chars=15)
-            if _gestores_sb:
-                sb_gst  = st.selectbox("Gestor", _gestores_sb, key="sb_gst_add")
-                sb_dept = _depto_map_sb.get(sb_gst, "")
-                st.caption(f"Departamento: {sb_dept}")
-            else:
-                sb_gst  = st.text_input("Gestor", key="sb_gst_txt")
-                sb_dept = st.text_input("Departamento", key="sb_dept_txt")
+            sb_dni  = st.text_input("DNI", key="sb_dni_add", max_chars=15)
+            sb_gst  = st.text_input("Nombre completo", key="sb_gst_txt")
+            sb_dept = st.text_input("Departamento", key="sb_dept_txt")
             if st.button("➕ Agregar gestor", key="btn_add_dni_sb"):
-                if sb_dni.strip() and sb_gst:
-                    mapa_dni[sb_dni.strip()] = {"gestor": sb_gst, "departamento": sb_dept}
+                if sb_dni.strip() and sb_gst.strip():
+                    mapa_dni[sb_dni.strip()] = {"gestor": sb_gst.strip(), "departamento": sb_dept.strip()}
                     guardar_dni_map(mapa_dni)
-                    st.success(f"✅ {sb_gst} · DNI {sb_dni.strip()}")
+                    st.success(f"✅ {sb_gst.strip()} · DNI {sb_dni.strip()}")
                     st.rerun()
                 else:
                     st.error("Completa DNI y nombre.")
