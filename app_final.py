@@ -895,7 +895,7 @@ def datos_demo():
                     "Producto": p,
                     "Fecha": d.strftime("%Y-%m-%d"),
                     "Venta_Dia": round(random.uniform(0, cd * 1.6), 1),
-                    "CuotaDiaria": round(cd, 2),
+                    "CuotaDiaria": round(cd, 0),
                 })
     df_diario = pd.DataFrame(rows_d)
     return df_mensual, df_diario
@@ -1175,7 +1175,7 @@ def calcular_cuota_diaria_dinamica(df_mensual: pd.DataFrame,
     df_m = df_m.merge(acum, on=["Gestor", "Producto"], how="left")
     df_m["_Acum"]       = df_m["_Acum"].fillna(0)
     df_m["CuotaDiaria"] = ((df_m["Cuota"] - df_m["_Acum"]).clip(lower=0)
-                           / dias_restantes).round(2)
+                           / dias_restantes).round(0).astype(int)
     return df_m.drop(columns=["_Acum"])
 
 df_raw = calcular_cuota_diaria_dinamica(df_raw, df_diario)
