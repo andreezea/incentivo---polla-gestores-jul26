@@ -1217,6 +1217,45 @@ if not df_diario_sqlite.empty:
     else:
         df_diario = df_diario_sqlite
 
+# ── Cuota diaria dinámica: (Cuota − ventas acumuladas hasta ayer) / días hábiles restantes ──
+def calcular_cuota_diaria_dinamica(df_mensual: pd.DataFrame,
+                                   df_diario_: pd.DataFrame) -> pd.DataFrame:
+    """
+    Reemplaza CuotaDiaria del Excel por el valor progresivo:
+        CuotaDiaria = (Cuota − Ventas acumuladas hasta ayer) / días hábiles restantes
+    Si faltan días (fin de mes o sin días restantes) usa 1 como mínimo.
+    """
+    hoy       = date.today()
+    ayer      = hoy - timedelta(days=1)
+    fin_mes   = (date(hoy.year, hoy.month % 12 + 1, 1)
+                 if hoy.month < 12 else date(hoy.year, 12, 31))
+    if hoy.month < 12:
+        fin_mes = date(hoy.year, hoy.month + 1, 1) - timedelta(days=1)
+    else:
+        fin_mes = date(hoy.year, 12, 31)
+
+    dias_restantes = max(1, sum(
+        1 for d in pd.date_range(hoy, fin_mes) if d.weekday() < 5
+    ))
+
+    # Ventas acumuladas hasta ayer desde la hoja Diario
+    if not df_diario_.empty and "Fecha" in df_diario_.columns:
+        acum = (df_diario_[df_diario_["Fecha"] <= pd.Timestamp(ayer)]
+                .groupby(["Gestor", "Producto"])["Venta_Dia"]
+                .sum().reset_index()
+                .rename(columns={"Venta_Dia": "_Acum"}))
+    else:
+        acum = pd.DataFrame(columns=["Gestor", "Producto", "_Acum"])
+
+    df_m = df_mensual.copy()
+    df_m = df_m.merge(acum, on=["Gestor", "Producto"], how="left")
+    df_m["_Acum"]       = df_m["_Acum"].fillna(0)
+    df_m["CuotaDiaria"] = ((df_m["Cuota"] - df_m["_Acum"]).clip(lower=0)
+                           / dias_restantes).round(2)
+    return df_m.drop(columns=["_Acum"])
+
+df_raw = calcular_cuota_diaria_dinamica(df_raw, df_diario)
+
 # ── Procesar base ────────────────────────────────────────────────────────────
 df = procesar(df_raw)
 
