@@ -908,6 +908,35 @@ def datos_demo():
 # ============================================================================
 CSV_PATH  = "ventas_registro.csv"
 DNI_PATH  = "gestores_dni.csv"
+PDV_PATH  = "pdv_cumplimiento.json"
+
+def acelerador_pdv(pct: float) -> float:
+    """Devuelve el multiplicador de Prepago según % de cumplimiento de PDVs."""
+    if pct >= 100: return 1.2
+    if pct >= 90:  return 1.1
+    if pct >= 85:  return 1.0
+    return 0.9
+
+def cargar_pdv_map() -> dict:
+    """Devuelve {departamento: {nuevos: pct, captura: pct}}."""
+    if os.path.exists(PDV_PATH):
+        try:
+            import json
+            with open(PDV_PATH, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return st.session_state.get("_pdv_map", {})
+
+def guardar_pdv_map(mapa: dict):
+    """Guarda el mapa de PDV cumplimiento en JSON."""
+    import json
+    st.session_state["_pdv_map"] = mapa
+    try:
+        with open(PDV_PATH, "w", encoding="utf-8") as f:
+            json.dump(mapa, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
 _CSV_COLS = ["id","timestamp","dni","gestor","departamento",
              "producto","fecha","venta_dia","cuota_diaria"]
 _DNI_COLS = ["dni","gestor","departamento"]
@@ -1214,6 +1243,20 @@ else:
 
 df[COLS_PROD] = df[COLS_PROD].fillna(0).astype(int)
 
+# ── Acelerador PDV: multiplica Puntos_Producto de Prepago ────────────────────
+_pdv_map_global = cargar_pdv_map()
+if _pdv_map_global and "Departamento" in df.columns:
+    def _mult_prepago(row):
+        if row.get("Producto") != "Prepago":
+            return row["Puntos_Producto"]
+        dept = row.get("Departamento", "")
+        cfg  = _pdv_map_global.get(dept, {})
+        mn   = acelerador_pdv(float(cfg.get("nuevos",  0)))
+        mc   = acelerador_pdv(float(cfg.get("captura", 0)))
+        mult = round((mn + mc) / 2, 3)
+        return round(row["Puntos_Producto"] * mult)
+    df["Puntos_Producto"] = df.apply(_mult_prepago, axis=1)
+
 # ── Ventas semanales y puntos adicionales ─────────────────────────────────────
 df_semanal_resumen = calcular_ventas_semanales(df_diario)
 df_pts_add, df_sem_detalle = calcular_puntos_adicionales(df_diario, df_raw, df_sem_ant)
@@ -1416,6 +1459,37 @@ with _col_menu:
                     del mapa_dni[dni_quitar]
                     guardar_dni_map(mapa_dni)
                     st.rerun()
+
+            # ── Acelerador PDV ─────────────────────────────────────────
+            st.markdown("---")
+            st.markdown("##### 📈 Acelerador PDV · Prepago")
+            st.caption("% de cumplimiento de PDVs por departamento. Aplica multiplicador a Prepago.")
+            _pdv_edit = cargar_pdv_map()
+            _deptos_all = sorted([d for deptos in REGIONES.values() for d in deptos])
+            for _dept in _deptos_all:
+                _cfg = _pdv_edit.get(_dept, {"nuevos": 0.0, "captura": 0.0})
+                _c1, _c2 = st.columns(2)
+                _pn = _c1.number_input(
+                    f"{_dept} · Nuevos %",
+                    min_value=0.0, max_value=200.0,
+                    value=float(_cfg.get("nuevos", 0.0)),
+                    step=1.0, key=f"pdv_n_{_dept}"
+                )
+                _pc = _c2.number_input(
+                    f"Captura %",
+                    min_value=0.0, max_value=200.0,
+                    value=float(_cfg.get("captura", 0.0)),
+                    step=1.0, key=f"pdv_c_{_dept}"
+                )
+                _mn = acelerador_pdv(_pn)
+                _mc = acelerador_pdv(_pc)
+                _mult = round((_mn + _mc) / 2, 3)
+                st.caption(f"×{_mn} · ×{_mc} → **Mult. Prepago: ×{_mult}**")
+                _pdv_edit[_dept] = {"nuevos": _pn, "captura": _pc}
+            if st.button("💾 Guardar PDV %", key="btn_save_pdv", use_container_width=True):
+                guardar_pdv_map(_pdv_edit)
+                st.success("✅ PDV guardado — recargando…")
+                st.rerun()
 
 # ============================================================================
 # TABS
@@ -2047,72 +2121,4 @@ with tab4:
                         <span style="font-size:12px; color:rgba(255,255,255,0.65);"> unidades</span>
                     </div>""", unsafe_allow_html=True)
             else:
-                st.info("Sin ventas registradas hoy.")
-        else:
-            st.info("Usa el formulario para empezar.")
-
-    st.markdown("<div style='margin-top:8px'></div>", unsafe_allow_html=True)
-    df_hist_all = cargar_registros_db()
-
-    if gestor_activo:
-        subheader(f"📜 Mis Registros — {gestor_activo}")
-        df_mis = (df_hist_all[df_hist_all["gestor"] == gestor_activo].copy()
-                  if not df_hist_all.empty and "gestor" in df_hist_all.columns
-                  else pd.DataFrame())
-
-        if not df_mis.empty:
-            df_mis_show = df_mis[["id","fecha","producto","venta_dia","timestamp"]].copy()
-            df_mis_show.columns = ["ID","Fecha","Producto","Ventas","Registrado"]
-            df_mis_show["Ventas"] = df_mis_show["Ventas"].astype(int)
-            st.dataframe(df_mis_show, use_container_width=True, hide_index=True)
-
-            with st.expander("🗑️ Eliminar uno de mis registros"):
-                st.caption("Solo puedes eliminar tus propios registros.")
-                ids_propios = df_mis["id"].astype(int).tolist()
-
-                def _label(rid):
-                    r = df_mis[df_mis["id"] == rid]
-                    if r.empty:
-                        return str(rid)
-                    return (f"#{rid} · {r['producto'].values[0]} · "
-                            f"{r['fecha'].values[0]} · {int(r['venta_dia'].values[0])} u.")
-
-                id_a_eliminar = st.selectbox(
-                    "Selecciona el registro",
-                    ids_propios,
-                    format_func=_label,
-                    key="del_propio_id",
-                )
-                if st.button("❌ Eliminar este registro", key="btn_del_propio"):
-                    es_mio = ((df_mis["id"] == id_a_eliminar) &
-                              (df_mis["gestor"] == gestor_activo)).any()
-                    if es_mio:
-                        eliminar_registro_db(int(id_a_eliminar))
-                        st.success(f"Registro #{id_a_eliminar} eliminado.")
-                        st.rerun()
-                    else:
-                        st.error("No puedes eliminar registros de otros gestores.")
-        else:
-            st.info("Aún no tienes registros guardados.")
-    else:
-        subheader("📜 Historial General")
-        if not df_hist_all.empty:
-            cols_show = [c for c in ["id","timestamp","gestor","producto","fecha","venta_dia"]
-                         if c in df_hist_all.columns]
-            df_show = df_hist_all[cols_show].head(100).copy()
-            rename = ["ID","Registrado","Gestor","Producto","Fecha","Ventas"]
-            df_show.columns = rename[:len(cols_show)]
-            if "Ventas" in df_show.columns:
-                df_show["Ventas"] = df_show["Ventas"].astype(int)
-            st.dataframe(df_show, use_container_width=True, hide_index=True)
-
-            csv_bytes = df_hist_all.to_csv(index=False).encode("utf-8")
-            st.download_button(
-                label="⬇️ Descargar historial completo (.csv)",
-                data=csv_bytes,
-                file_name="historial_ventas.csv",
-                mime="text/csv",
-                use_container_width=True,
-            )
-        else:
-            st.info("No hay registros. Ingresa tu DNI para registrar ventas.")
+                st.info('Sin registros para hoy.')
