@@ -1200,8 +1200,25 @@ if "es_admin" not in st.session_state:
 DATA_PATH      = "datos_incentivos.xlsx"   # archivo guardado en el servidor
 
 def normalizar_columnas(df):
-    """Quita asteriscos y espacios extra de los nombres de columna."""
-    df.columns = [str(c).replace("*", "").strip() for c in df.columns]
+    """
+    Normaliza nombres de columna:
+    - Quita asteriscos y espacios extra
+    - Si el nombre tiene salto de línea (ej: 'Cuota\n(Julio)'), toma solo la primera línea
+      → 'Cuota\n(Julio)' → 'Cuota', 'VentaMesAnterior\n(Junio total)' → 'VentaMesAnterior'
+    """
+    def _limpiar(c):
+        c = str(c).replace("*", "").strip()
+        if "\n" in c:
+            c = c.split("\n")[0].strip()
+        return c
+    df.columns = [_limpiar(c) for c in df.columns]
+    return df
+
+def _limpiar_texto_gestores(df: pd.DataFrame) -> pd.DataFrame:
+    """Limpia tabs y espacios extra en columnas de texto (Gestor, Departamento, Producto)."""
+    for col in ["Gestor", "Departamento", "Producto"]:
+        if col in df.columns:
+            df[col] = df[col].astype(str).str.replace("\t", " ", regex=False).str.strip()
     return df
 
 def leer_hoja(xls, sheet_name):
@@ -1209,13 +1226,15 @@ def leer_hoja(xls, sheet_name):
     Lee una hoja tolerando:
       - Formato simple: encabezados en fila 1
       - Plantilla con título decorativo: encabezados en fila 3, tooltips en fila 4
-    También normaliza nombres de columna (quita asteriscos).
+    También normaliza nombres de columna (quita asteriscos, newlines).
     """
     df = pd.read_excel(xls, sheet_name=sheet_name, header=0)
     primera_col = str(df.columns[0]).upper()
     if "GESTOR" not in primera_col and primera_col not in ("GESTOR", "NAN"):
         df = pd.read_excel(xls, sheet_name=sheet_name, header=2).iloc[1:].reset_index(drop=True)
-    return normalizar_columnas(df)
+    df = normalizar_columnas(df)
+    df = _limpiar_texto_gestores(df)
+    return df
 
 def cargar_excel(fuente):
     """Carga Mensual, Diario y Semanal_MesAnt desde un archivo o buffer."""
@@ -2163,11 +2182,13 @@ with tab4:
                 r1c1, r1c2 = st.columns(2)
                 producto_sel_f = r1c1.selectbox("📦 Producto *", PRODUCTOS_ORDEN)
                 fecha_f        = r1c2.date_input("📅 Fecha", value=date.today())
+
+                r2c1, r2c2 = st.columns(2)
                 ventas_f       = r2c1.number_input("📊 Ventas del día *", min_value=0, step=1,
-                                           key="ventas_f_input")
+                                                    key="ventas_f_input")
 
                 submitted_f = st.form_submit_button("💾 Guardar registro",
-                                                    use_container_width=True)
+                                                     use_container_width=True)
                 if submitted_f:
                     insertar_registro_db(
                         gestor=gestor_activo,
@@ -2178,4 +2199,8 @@ with tab4:
                         cuota_diaria=0,
                         dni=str(dni_input).strip()
                     )
-                    st.success(f"✅ {int(ventas_f)} unidades de {producto_sel_f} guardadas para {fecha_f}")
+                    st.success(
+                        f"✅ {int(ventas_f)} unidades de {producto_sel_f} "
+                        f"guardadas para {fecha_f}"
+                    )
+                    st.rerun()
