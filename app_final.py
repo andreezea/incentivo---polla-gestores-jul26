@@ -1334,6 +1334,30 @@ def calcular_cuota_diaria_dinamica(df_mensual: pd.DataFrame,
 
 df_raw = calcular_cuota_diaria_dinamica(df_raw, df_diario)
 
+# ── Propagar CuotaDiaria de df_raw → df_diario (la hoja Diario no la trae) ──
+if not df_diario.empty and "CuotaDiaria" in df_raw.columns:
+    _cuota_map = (df_raw.drop_duplicates(["Gestor","Producto"])
+                        .set_index(["Gestor","Producto"])["CuotaDiaria"]
+                        .to_dict())
+    def _fill_cuota_diaria(r):
+        v = float(r.get("CuotaDiaria") or 0)
+        if v == 0:
+            v = float(_cuota_map.get((r["Gestor"], r["Producto"]), 0))
+        return v
+    df_diario["CuotaDiaria"] = df_diario.apply(_fill_cuota_diaria, axis=1)
+
+# ── Rellenar Venta mensual desde Diario cuando el Mensual trae NaN ───────────
+# El Excel usa fórmulas que a veces no se calculan → Venta queda NaN.
+# En ese caso usamos el acumulado real de la hoja Diario.
+if not df_diario.empty and "Venta_Dia" in df_diario.columns:
+    _venta_acum = (df_diario.groupby(["Gestor","Producto"])["Venta_Dia"]
+                             .sum().reset_index()
+                             .rename(columns={"Venta_Dia": "_VentaAcum"}))
+    df_raw = df_raw.merge(_venta_acum, on=["Gestor","Producto"], how="left")
+    _mask_v = df_raw["Venta"].isna() | (df_raw["Venta"] == 0)
+    df_raw.loc[_mask_v, "Venta"] = df_raw.loc[_mask_v, "_VentaAcum"].fillna(0)
+    df_raw = df_raw.drop(columns=["_VentaAcum"])
+
 # ── Agregar gestores del mapa DNI que no están en el Excel ───────────────────
 # Permite que aparezcan en "Detalle por Producto" con cuota y ventas en 0
 _mapa_dni_base = cargar_dni_map()
@@ -2272,7 +2296,7 @@ with tab4:
                             border-left:4px solid #C9982A;">
                     <span style="font-size:14px; color:#FFFFFF; font-weight:700;">
                         👤 {gestor_activo}</span>
-                    <span style="color:rgba(255,255,255,0.65); font-size:12px;"> · {depto_activo}</span>
+                    <span style                    <span style="color:rgba(255,255,255,0.65); font-size:12px;"> · {depto_activo}</span>
                 </div>""", unsafe_allow_html=True)
 
                 r1c1, r1c2 = st.columns(2)
