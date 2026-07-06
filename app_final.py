@@ -617,12 +617,18 @@ def _build_tabla_regional(df_src, col_idx, label_idx, tabla_id):
     REGC  = "padding:7px 11px;border:1px solid #0A2A5E;font-size:12.5px;text-align:right;background:#0A2A5E;color:#FFD97A;font-weight:700;"
     TOT   = "padding:9px 14px;border:2px solid #C9982A;font-size:13px;font-weight:800;color:#0A2A5E;background:#FFF3CD;text-align:left;"
     TOTC  = "padding:7px 11px;border:2px solid #C9982A;font-size:12.5px;text-align:right;background:#FFF3CD;color:#0A2A5E;font-weight:800;"
-    HEAD1 = "padding:7px 12px;background:#0A2A5E;color:#FFF;font-size:11px;font-weight:700;text-align:center;border:1px solid #1565C0;text-transform:uppercase;letter-spacing:0.5px;"
-    HEAD2 = "padding:5px 10px;background:#0B5ED7;color:#FFF;font-size:10.5px;font-weight:700;text-align:center;border:1px solid #1976D2;"
+    HEAD1  = "padding:7px 12px;background:#0A2A5E;color:#FFF;font-size:11px;font-weight:700;text-align:center;border:1px solid #1565C0;text-transform:uppercase;letter-spacing:0.5px;"
+    HEAD2  = "padding:5px 10px;background:#0B5ED7;color:#FFF;font-size:10.5px;font-weight:700;text-align:center;border:1px solid #1976D2;"
+    THEAD1 = "padding:7px 12px;background:#7B3F00;color:#FFD97A;font-size:11px;font-weight:800;text-align:center;border:2px solid #C9982A;text-transform:uppercase;letter-spacing:0.5px;"
+    THEAD2 = "padding:5px 10px;background:#9B5200;color:#FFD97A;font-size:10.5px;font-weight:700;text-align:center;border:1px solid #C9982A;"
+    TCELL  = "padding:7px 11px;border:2px solid #C9982A;font-size:12.5px;text-align:right;background:#FFFBF0;font-weight:700;"
 
-    # Cabecera
+    # Cabecera — columna TOTAL primero, luego productos
     h1 = f'<th style="{HEAD1};text-align:left" rowspan="2">{label_idx.upper()}</th>'
+    h1 += f'<th style="{THEAD1}" colspan="3">📊 TOTAL</th>'
     h2 = ""
+    for m in ["Cuota", "Ventas", "Cumpl%"]:
+        h2 += f'<th style="{THEAD2}">{m}</th>'
     for p in avail:
         h1 += f'<th style="{HEAD1}" colspan="3">{p}</th>'
         for m in ["Cuota", "Ventas", "Cumpl%"]:
@@ -631,6 +637,20 @@ def _build_tabla_regional(df_src, col_idx, label_idx, tabla_id):
 
     def _celdas(pv, ix, cel, modo):
         out = ""
+        # ── Columna TOTAL (suma de todos los productos) ──────────────────────
+        t_cuota  = sum(int(pv.loc[ix, (p, "Cuota")])  if (p, "Cuota")  in pv.columns else 0 for p in avail)
+        t_ventas = sum(int(pv.loc[ix, (p, "Ventas")]) if (p, "Ventas") in pv.columns else 0 for p in avail)
+        t_cumpl  = round(t_ventas / t_cuota * 100) if t_cuota > 0 else 0
+        if modo == "region":
+            t_sty = REGC; t_clr = "#FFD97A"
+        elif modo == "total":
+            t_sty = TOTC; t_clr = "#C9982A"
+        else:
+            t_sty = TCELL; t_clr = _cumpl_color(t_cumpl)
+        out += f'<td style="{t_sty}">{t_cuota}</td>'
+        out += f'<td style="{t_sty}font-weight:900;">{t_ventas}</td>'
+        out += f'<td style="{t_sty}color:{t_clr};font-weight:900;">{t_cumpl}%</td>'
+        # ── Columnas por producto ────────────────────────────────────────────
         for p in avail:
             cu = pv.loc[ix, (p, "Cuota")]  if (p, "Cuota")  in pv.columns else 0
             ve = pv.loc[ix, (p, "Ventas")] if (p, "Ventas") in pv.columns else 0
@@ -1272,6 +1292,17 @@ if not df_diario.empty:
             "no nombres de producto ni de mes."
         )
         df_diario = pd.DataFrame()
+
+# ── Filtrar filas instrucción / cabeceras coladas en la hoja Diario ───────────
+# El template tiene textos de ayuda en el área de datos (ej: "Fecha: DD/MM/YYYY…").
+# Se filtran conservando solo filas cuyo Producto esté en PRODUCTOS_ORDEN
+# Y cuyo Gestor coincida con alguno de la hoja Mensual.
+if not df_diario.empty:
+    _mask_prod = df_diario["Producto"].isin(PRODUCTOS_ORDEN)
+    if "Gestor" in df_raw.columns:
+        _valid_gest = set(df_raw["Gestor"].dropna().unique())
+        _mask_prod  = _mask_prod & df_diario["Gestor"].isin(_valid_gest)
+    df_diario = df_diario[_mask_prod].reset_index(drop=True)
 
 # ── Merge datos SQLite (Registro Diario) → df_diario ─────────────────────────
 # Regla de prioridad: Excel Diario > SQLite (app).
@@ -2292,6 +2323,7 @@ with tab4:
                 unsafe_allow_html=True
             )
 
+
     st.markdown("<div style='margin-top:12px'></div>", unsafe_allow_html=True)
     col_form, col_hoy = st.columns([3, 2])
 
@@ -2337,3 +2369,26 @@ with tab4:
                         f"guardadas para {fecha_f}"
                     )
                     st.rerun()
+
+    # ── Panel derecho: registros de hoy ──────────────────────────────────────
+    with col_hoy:
+        subheader("📅 Registros de hoy")
+        _hoy_dt = pd.Timestamp(date.today())
+        if not df_diario.empty and "Fecha" in df_diario.columns:
+            _df_hoy = df_diario[df_diario["Fecha"] == _hoy_dt]
+            if gestor_activo:
+                _df_hoy = _df_hoy[_df_hoy["Gestor"] == gestor_activo]
+            if _df_hoy.empty:
+                st.info("Sin registros para hoy.")
+            else:
+                _cols_show = ["Gestor","Producto","Venta_Dia","CuotaDiaria"]
+                _cols_show = [c for c in _cols_show if c in _df_hoy.columns]
+                st.dataframe(
+                    _df_hoy[_cols_show].rename(columns={
+                        "Venta_Dia":"Ventas","CuotaDiaria":"Cuota Día"
+                    }).reset_index(drop=True),
+                    use_container_width=True,
+                    hide_index=True
+                )
+        else:
+            st.info("Sin datos diarios cargados.")
