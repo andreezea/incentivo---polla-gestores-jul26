@@ -906,9 +906,61 @@ def datos_demo():
 # Primario: CSV en disco (persiste entre sesiones en servidores).
 # Fallback: st.session_state (persiste en la sesión actual).
 # ============================================================================
-CSV_PATH  = "ventas_registro.csv"
-DNI_PATH  = "gestores_dni.csv"
-PDV_PATH  = "pdv_cumplimiento.json"
+CSV_PATH      = "ventas_registro.csv"
+DNI_PATH      = "gestores_dni.csv"
+PDV_PATH      = "pdv_cumplimiento.json"
+GITHUB_REPO   = "andreezea/incentivo---polla-gestores-jul26"
+GITHUB_BRANCH = "main"
+
+# ── GitHub helpers ────────────────────────────────────────────────────────────
+def _gh_headers() -> dict:
+    try:
+        token = st.secrets.get("GITHUB_TOKEN", "")
+    except Exception:
+        token = ""
+    if not token:
+        return {}
+    return {"Authorization": f"token {token}",
+            "Accept": "application/vnd.github.v3+json"}
+
+def _gh_get_file(path: str):
+    """Retorna (contenido_str, sha) o (None, None) si falla."""
+    import requests, base64
+    hdrs = _gh_headers()
+    if not hdrs:
+        return None, None
+    url = (f"https://api.github.com/repos/{GITHUB_REPO}"
+           f"/contents/{path}?ref={GITHUB_BRANCH}")
+    try:
+        r = requests.get(url, headers=hdrs, timeout=8)
+        if r.status_code == 200:
+            data = r.json()
+            content = base64.b64decode(data["content"]).decode("utf-8")
+            return content, data.get("sha")
+    except Exception:
+        pass
+    return None, None
+
+def _gh_put_file(path: str, content_str: str, message: str):
+    """Crea o actualiza un archivo en el repositorio GitHub."""
+    import requests, base64
+    hdrs = _gh_headers()
+    if not hdrs:
+        return
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{path}"
+    encoded = base64.b64encode(content_str.encode("utf-8")).decode("utf-8")
+    try:
+        r = requests.get(url, headers=hdrs, timeout=8)
+        sha = r.json().get("sha") if r.status_code == 200 else None
+    except Exception:
+        sha = None
+    payload = {"message": message, "content": encoded, "branch": GITHUB_BRANCH}
+    if sha:
+        payload["sha"] = sha
+    try:
+        requests.put(url, headers=hdrs, json=payload, timeout=15)
+    except Exception:
+        pass
 
 def acelerador_pdv(pct: float) -> float:
     """Devuelve el multiplicador de Prepago según % de cumplimiento de PDVs."""
@@ -919,24 +971,37 @@ def acelerador_pdv(pct: float) -> float:
 
 def cargar_pdv_map() -> dict:
     """Devuelve {departamento: {nuevos: pct, captura: pct}}."""
+    import json
+    # 1. Disco local (caché rápida)
     if os.path.exists(PDV_PATH):
         try:
-            import json
             with open(PDV_PATH, "r", encoding="utf-8") as f:
                 return json.load(f)
+        except Exception:
+            pass
+    # 2. GitHub (fuente persistente)
+    content, _ = _gh_get_file(PDV_PATH)
+    if content:
+        try:
+            mapa = json.loads(content)
+            with open(PDV_PATH, "w", encoding="utf-8") as f:
+                f.write(content)
+            return mapa
         except Exception:
             pass
     return st.session_state.get("_pdv_map", {})
 
 def guardar_pdv_map(mapa: dict):
-    """Guarda el mapa de PDV cumplimiento en JSON."""
+    """Guarda el mapa PDV en disco y en GitHub."""
     import json
     st.session_state["_pdv_map"] = mapa
+    content = json.dumps(mapa, ensure_ascii=False, indent=2)
     try:
         with open(PDV_PATH, "w", encoding="utf-8") as f:
-            json.dump(mapa, f, ensure_ascii=False, indent=2)
+            f.write(content)
     except Exception:
         pass
+    _gh_put_file(PDV_PATH, content, "Update PDV cumplimiento desde app")
 _CSV_COLS = ["id","timestamp","dni","gestor","departamento",
              "producto","fecha","venta_dia","cuota_diaria"]
 _DNI_COLS = ["dni","gestor","departamento"]
@@ -945,30 +1010,51 @@ def _df_vacio():
     return pd.DataFrame(columns=_CSV_COLS)
 
 def cargar_registros_db():
-    """Carga registros desde CSV (si existe) y fusiona con session_state."""
-    # Primero session_state (tiene los datos de esta sesión)
+    """Carga registros desde CSV local, GitHub o session_state."""
+    import io
     df_ss = st.session_state.get("_registros", _df_vacio())
-    # Intentar leer CSV del disco
+
+    def _leer_csv_str(text: str):
+        return pd.read_csv(io.StringIO(text), dtype={"id": int})
+
+    # 1. Disco local
     if os.path.exists(CSV_PATH):
         try:
             df_csv = pd.read_csv(CSV_PATH, dtype={"id": int})
-            # Fusionar: prioridad CSV (tiene histórico), session_state agrega lo nuevo
             if not df_ss.empty and not df_csv.empty:
                 df_merged = pd.concat([df_csv, df_ss], ignore_index=True)
-                df_merged = df_merged.drop_duplicates(subset=["id"]).sort_values(
+                return df_merged.drop_duplicates(subset=["id"]).sort_values(
                     ["fecha","timestamp"], ascending=False)
-                return df_merged
             return df_csv if not df_csv.empty else df_ss
         except Exception:
             pass
+
+    # 2. GitHub (si el disco no tiene el archivo)
+    content, _ = _gh_get_file(CSV_PATH)
+    if content:
+        try:
+            df_gh = _leer_csv_str(content)
+            with open(CSV_PATH, "w", encoding="utf-8") as f:
+                f.write(content)
+            if not df_ss.empty and not df_gh.empty:
+                df_merged = pd.concat([df_gh, df_ss], ignore_index=True)
+                return df_merged.drop_duplicates(subset=["id"]).sort_values(
+                    ["fecha","timestamp"], ascending=False)
+            return df_gh if not df_gh.empty else df_ss
+        except Exception:
+            pass
+
     return df_ss
 
 def _guardar_csv(df: pd.DataFrame):
-    """Intenta escribir el CSV en disco; silencioso si no hay permisos."""
+    """Escribe el CSV en disco y lo sube a GitHub para persistencia."""
+    csv_str = df.to_csv(index=False)
     try:
-        df.to_csv(CSV_PATH, index=False)
+        with open(CSV_PATH, "w", encoding="utf-8") as f:
+            f.write(csv_str)
     except Exception:
-        pass  # Streamlit Cloud sin permisos de escritura → solo session_state
+        pass
+    _gh_put_file(CSV_PATH, csv_str, "Update ventas diarias desde app")
 
 def insertar_registro_db(gestor, departamento, producto, fecha,
                          venta_dia, cuota_diaria, dni=""):
@@ -1045,13 +1131,30 @@ def db_a_diario(df_raw: pd.DataFrame) -> pd.DataFrame:
 # GESTIÓN DNI — mapeo DNI → Gestor
 # ============================================================================
 def cargar_dni_map() -> dict:
-    """Devuelve {dni: {gestor, departamento}} desde CSV o session_state."""
+    """Devuelve {dni: {gestor, departamento}} desde disco, GitHub o session_state."""
+    def _parse_csv(text: str) -> dict:
+        import io
+        df = pd.read_csv(io.StringIO(text), dtype=str).fillna("")
+        return {str(r["dni"]).strip(): {"gestor": r["gestor"],
+                                        "departamento": r["departamento"]}
+                for _, r in df.iterrows()}
+    # 1. Disco local
     if os.path.exists(DNI_PATH):
         try:
-            df = pd.read_csv(DNI_PATH, dtype=str).fillna("")
-            mapa = {str(r["dni"]).strip(): {"gestor": r["gestor"],
-                                             "departamento": r["departamento"]}
-                    for _, r in df.iterrows()}
+            with open(DNI_PATH, "r", encoding="utf-8") as f:
+                text = f.read()
+            mapa = _parse_csv(text)
+            st.session_state["_dni_map"] = mapa
+            return mapa
+        except Exception:
+            pass
+    # 2. GitHub
+    content, _ = _gh_get_file(DNI_PATH)
+    if content:
+        try:
+            mapa = _parse_csv(content)
+            with open(DNI_PATH, "w", encoding="utf-8") as f:
+                f.write(content)
             st.session_state["_dni_map"] = mapa
             return mapa
         except Exception:
@@ -1059,15 +1162,18 @@ def cargar_dni_map() -> dict:
     return st.session_state.get("_dni_map", {})
 
 def guardar_dni_map(mapa: dict):
-    """Guarda el mapa DNI en CSV y session_state."""
+    """Guarda el mapa DNI en disco, session_state y GitHub."""
     st.session_state["_dni_map"] = mapa
     rows = [{"dni": k, "gestor": v["gestor"], "departamento": v["departamento"]}
             for k, v in mapa.items()]
     df = pd.DataFrame(rows, columns=_DNI_COLS)
+    csv_str = df.to_csv(index=False)
     try:
-        df.to_csv(DNI_PATH, index=False)
+        with open(DNI_PATH, "w", encoding="utf-8") as f:
+            f.write(csv_str)
     except Exception:
         pass
+    _gh_put_file(DNI_PATH, csv_str, "Update gestores DNI desde app")
 
 def buscar_por_dni(dni: str):
     """Retorna (gestor, departamento) o (None, '') si no existe."""
@@ -2057,68 +2163,19 @@ with tab4:
                 r1c1, r1c2 = st.columns(2)
                 producto_sel_f = r1c1.selectbox("📦 Producto *", PRODUCTOS_ORDEN)
                 fecha_f        = r1c2.date_input("📅 Fecha", value=date.today())
-                ventas_f       = st.number_input(
-                    "🛒 Unidades vendidas *", min_value=0, step=1, value=0)
+                ventas_f       = r2c1.number_input("📊 Ventas del día *", min_value=0, step=1,
+                                           key="ventas_f_input")
 
-                submitted_f = st.form_submit_button(
-                    "💾  Guardar Registro", use_container_width=True, type="primary")
-
+                submitted_f = st.form_submit_button("💾 Guardar registro",
+                                                    use_container_width=True)
                 if submitted_f:
-                    if ventas_f == 0:
-                        st.warning("⚠️ Ingresaste 0 ventas. ¿Seguro que quieres guardar?")
-                    else:
-                        cuota_d_f = 0.0
-                        if "Gestor" in df_raw.columns:
-                            mask_c = ((df_raw["Gestor"] == gestor_activo) &
-                                      (df_raw["Producto"] == producto_sel_f))
-                            if mask_c.any():
-                                row_c = df_raw[mask_c].iloc[0]
-                                if "CuotaDiaria" in row_c and pd.notna(row_c["CuotaDiaria"]):
-                                    cuota_d_f = float(row_c["CuotaDiaria"])
-                                elif "Cuota" in row_c:
-                                    cuota_d_f = float(row_c["Cuota"]) / 22
-
-                        es_dup = existe_registro_db(gestor_activo, producto_sel_f, str(fecha_f))
-                        insertar_registro_db(
-                            gestor=gestor_activo, departamento=depto_activo,
-                            producto=producto_sel_f, fecha=str(fecha_f),
-                            venta_dia=float(ventas_f), cuota_diaria=cuota_d_f,
-                            dni=dni_input.strip(),
-                        )
-                        if es_dup:
-                            st.info(
-                                f"🔄 Registro actualizado · **{producto_sel_f}** · "
-                                f"{int(ventas_f)} unidades · {fecha_f} (reemplazó el anterior)")
-                        else:
-                            st.success(
-                                f"✅ Guardado · {producto_sel_f} · "
-                                f"{int(ventas_f)} unidades · {fecha_f}")
-                        st.rerun()
-
-    with col_hoy:
-        subheader(f"📊 Hoy — {date.today().strftime('%d/%m/%Y')}")
-        df_db_hoy = cargar_registros_db()
-        hoy_str   = str(date.today())
-
-        if not df_db_hoy.empty:
-            hoy_rows = df_db_hoy[df_db_hoy["fecha"] == hoy_str].copy()
-            if gestor_activo:
-                hoy_rows = hoy_rows[hoy_rows["gestor"] == gestor_activo]
-            if not hoy_rows.empty:
-                hoy_grp = (hoy_rows.groupby("producto")["venta_dia"]
-                                   .sum().reset_index().sort_values("producto"))
-                for _, row in hoy_grp.iterrows():
-                    color = PALETA[PRODUCTOS_ORDEN.index(row["producto"]) % len(PALETA)]
-                    st.markdown(f"""
-                    <div style="background:linear-gradient(135deg,#0A2A5E 0%,{color} 100%);
-                                border-radius:8px; padding:10px 16px; margin-bottom:8px;
-                                border-left:4px solid #C9982A;
-                                box-shadow:0 3px 10px rgba(0,33,71,0.20);">
-                        <span style="font-size:11px; color:rgba(255,255,255,0.65);
-                                     font-weight:700; text-transform:uppercase;">{row['producto']}</span><br>
-                        <span style="font-size:26px; color:#FFFFFF; font-weight:800;">
-                            {int(row['venta_dia'])}</span>
-                        <span style="font-size:12px; color:rgba(255,255,255,0.65);"> unidades</span>
-                    </div>""", unsafe_allow_html=True)
-            else:
-                st.info('Sin registros para hoy.')
+                    insertar_registro_db(
+                        gestor=gestor_activo,
+                        departamento=depto_activo,
+                        producto=producto_sel_f,
+                        fecha=fecha_f,
+                        venta_dia=int(ventas_f),
+                        cuota_diaria=0,
+                        dni=str(dni_input).strip()
+                    )
+                    st.success(f"✅ {int(ventas_f)} unidades de {producto_sel_f} guardadas para {fecha_f}")
