@@ -1616,6 +1616,66 @@ with _col_menu:
                 st.success("✅ PDV guardado — recargando…")
                 st.rerun()
 
+            # ── Descarga de avances (admin only) ──────────────────────────
+            st.markdown("---")
+            st.markdown("##### 📥 Descargar Avances")
+            st.caption("Excel con puntos y avance diario de todos los gestores.")
+
+            def _generar_excel_avances() -> bytes:
+                import io
+                buf = io.BytesIO()
+                with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+                    # ── Hoja 1: Puntos por Gestor ────────────────────────
+                    cols_pts = ["Gestor","Departamento","Cuota","Venta",
+                                "Cumplimiento_%","Puntos_Base","Puntos_Crec",
+                                "PD_Diario","PD_Extra","PD_Semanal",
+                                "PD_Mensual","PD_MesAnt","PD_UR",
+                                "Puntos_Producto","Total_Puntos"]
+                    df_pts_exp = df_gestor[
+                        [c for c in cols_pts if c in df_gestor.columns]
+                    ].copy().sort_values("Total_Puntos", ascending=False)
+                    df_pts_exp.insert(0, "Puesto", range(1, len(df_pts_exp)+1))
+                    df_pts_exp.to_excel(writer, sheet_name="Puntos por Gestor",
+                                        index=False)
+
+                    # ── Hoja 2: Avance Diario ────────────────────────────
+                    if not df_diario.empty:
+                        df_dia_exp = df_diario.copy()
+                        df_dia_exp["Fecha"] = pd.to_datetime(
+                            df_dia_exp["Fecha"]).dt.strftime("%Y-%m-%d")
+                        if "Cuota" in df_gestor.columns:
+                            meta_map = (df_gestor.groupby(["Gestor","Producto"])
+                                        ["Cuota"].sum())
+                            df_dia_exp["Meta_Mensual"] = df_dia_exp.apply(
+                                lambda r: meta_map.get(
+                                    (r["Gestor"], r["Producto"]), 0), axis=1)
+                        df_dia_exp = df_dia_exp.sort_values(
+                            ["Gestor","Producto","Fecha"])
+                        df_dia_exp.to_excel(writer, sheet_name="Avance Diario",
+                                            index=False)
+
+                    # ── Hoja 3: Ranking Puntos Diarios ────────────────────
+                    if not df_diario.empty:
+                        rank_d = (df_diario.groupby(["Fecha","Gestor"])
+                                  ["Venta_Dia"].sum().reset_index()
+                                  .sort_values(["Fecha","Venta_Dia"],
+                                               ascending=[True, False]))
+                        rank_d.to_excel(writer, sheet_name="Ranking Diario",
+                                        index=False)
+
+                buf.seek(0)
+                return buf.read()
+
+            _hoy_str = date.today().strftime("%Y%m%d")
+            st.download_button(
+                label="📥 Descargar Excel de Avances",
+                data=_generar_excel_avances(),
+                file_name=f"Avances_Gestores_{_hoy_str}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+                key="btn_download_avances"
+            )
+
 # ============================================================================
 # TABS
 # ============================================================================
@@ -1760,6 +1820,42 @@ with tab1:
         })
     render_kpi_row(top_cards)
 
+    st.markdown("<div style='margin-top:20px'></div>", unsafe_allow_html=True)
+
+    # ── Tabla de Puntos por Gestor (visible, sin expander) ───────────────────
+    subheader("🎯 Puntos por Gestor")
+    _rank_pts = rank[["Gestor","Departamento","Cuota","Venta","Cumplimiento_%",
+                       "Puntos_Base","Puntos_Crec","PD_Diario","PD_Extra",
+                       "PD_Semanal","PD_Mensual","PD_MesAnt","PD_UR",
+                       "Puntos_Producto","Total_Puntos","Semaforo"]].copy()
+    _rank_pts.insert(0, "Puesto", range(1, len(_rank_pts)+1))
+    _rank_pts = _rank_pts.rename(columns={
+        "Cuota":           "Meta",
+        "Venta":           "Ventas",
+        "Cumplimiento_%":  "Cumpl%",
+        "Puntos_Base":     "P.Base",
+        "Puntos_Crec":     "P.Crec",
+        "PD_Diario":       "P.Diario",
+        "PD_Extra":        "P.Extra",
+        "PD_Semanal":      "P.Semanal",
+        "PD_Mensual":      "P.Mensual",
+        "PD_MesAnt":       "P.MesAnt",
+        "PD_UR":           "P.UR",
+        "Puntos_Producto": "Motor",
+        "Total_Puntos":    "TOTAL PTS",
+        "Semaforo":        "Estado",
+    })
+    st.dataframe(
+        _rank_pts,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "TOTAL PTS": st.column_config.NumberColumn("TOTAL PTS", format="%d"),
+            "Cumpl%":    st.column_config.NumberColumn("Cumpl%",    format="%.1f%%"),
+            "Meta":      st.column_config.NumberColumn("Meta",      format="%d"),
+            "Ventas":    st.column_config.NumberColumn("Ventas",    format="%d"),
+        }
+    )
     st.markdown("<div style='margin-top:20px'></div>", unsafe_allow_html=True)
 
     # ── Ranking + tabla (2 columnas) ─────────────────────────────────────────
@@ -1986,10 +2082,15 @@ with tab3:
     pivot_h  = pd.DataFrame(index=p_c.index,
                              columns=pd.MultiIndex.from_tuples(tuples_h))
     pivot_h.index.name = "Gestor"
+    def _safe_int(s):
+        """Convierte a int ignorando NaN e inf (los reemplaza por 0)."""
+        return pd.to_numeric(s, errors="coerce").fillna(0).replace(
+            [float("inf"), float("-inf")], 0).round(0).astype(int)
+
     for p in prods_h:
-        pivot_h[(p,"Cuota")]  = p_c[p].fillna(0).round(0).astype(int)
-        pivot_h[(p,"Ventas")] = p_v[p].fillna(0).round(0).astype(int)
-        pivot_h[(p,"Cumpl%")] = p_k[p].fillna(0).astype(int)
+        pivot_h[(p,"Cuota")]  = _safe_int(p_c[p])
+        pivot_h[(p,"Ventas")] = _safe_int(p_v[p])
+        pivot_h[(p,"Cumpl%")] = _safe_int(p_k[p])
 
     pivot_h_disp = pivot_h.copy()
     for p in prods_h:
@@ -2121,48 +2222,43 @@ with tab4:
         </p>
     </div>""", unsafe_allow_html=True)
 
-    # ── Identificación por DNI (fuera del form para reactividad) ────────────
-    subheader("🪪 Identificación")
-    dni_col, info_col = st.columns([2, 3])
-
-    with dni_col:
-        dni_input = st.text_input(
-            "Ingresa tu DNI",
-            max_chars=15,
-            placeholder="Ej: 12345678",
-            key="dni_ingreso",
-        )
-
-    gestor_activo = None
+    # ── Lookup por DNI ────────────────────────────────────────────────────────
+    mapa_dni_tab4 = cargar_dni_map()
+    subheader("🔑 Identificación del Gestor")
+    dni_input = st.text_input("📋 Ingresa tu DNI", max_chars=15, key="dni_registro_tab4")
+    gestor_activo = ""
     depto_activo  = ""
 
-    if dni_input:
-        gestor_activo, depto_activo = buscar_por_dni(dni_input.strip())
-        with info_col:
-            if gestor_activo:
-                st.markdown(f"""
-                <div style="background:#E8F5E9; border-radius:8px; padding:12px 16px;
-                            border-left:5px solid #27AE60; margin-top:26px;">
-                    <span style="font-size:11px; color:#1B7A3E; font-weight:700;
-                                 text-transform:uppercase;">✅ DNI verificado</span><br>
-                    <span style="font-size:22px; color:#1F3864; font-weight:800;">
-                        {gestor_activo}</span><br>
-                    <span style="font-size:12px; color:#7A8DA8;">{depto_activo}</span>
-                </div>""", unsafe_allow_html=True)
-            else:
-                st.markdown("""
-                <div style="background:#FFF3CD; border-radius:8px; padding:12px 16px;
-                            border-left:5px solid #F4C430; margin-top:26px;">
+    if dni_input.strip():
+        info_dni = mapa_dni_tab4.get(dni_input.strip())
+        if info_dni:
+            gestor_activo = info_dni["gestor"]
+            depto_activo  = info_dni["departamento"]
+            st.markdown(
+                f"""<div style="background:#E8F5E9; border-radius:8px; padding:10px 16px;
+                               border-left:5px solid #198754; margin-bottom:10px;">
+                    <span style="font-size:14px; color:#155724; font-weight:700;">
+                        ✅ {gestor_activo}</span>
+                    <span style="color:#555; font-size:12px;"> · {depto_activo}</span>
+                </div>""",
+                unsafe_allow_html=True
+            )
+        else:
+            st.markdown(
+                """<div style="background:#FFF8CD; border-radius:8px; padding:10px 16px;
+                               border-left:5px solid #F4C430; margin-bottom:10px;">
                     <span style="font-size:11px; color:#856404; font-weight:700;
                                  text-transform:uppercase;">⚠️ DNI no encontrado</span><br>
                     <span style="font-size:13px; color:#555;">
                         Contacta al administrador para registrar tu DNI.</span>
-                </div>""", unsafe_allow_html=True)
+                </div>""",
+                unsafe_allow_html=True
+            )
 
     st.markdown("<div style='margin-top:12px'></div>", unsafe_allow_html=True)
     col_form, col_hoy = st.columns([3, 2])
 
-    # ── Formulario de carga ───────────────────────────────────────────────────────────────────
+    # ── Formulario de carga ───────────────────────────────────────────────────
     with col_form:
         subheader("📋 Nueva Venta")
 
