@@ -2053,29 +2053,49 @@ with tab3:
         <p style="color:#FFFFFF; margin:0; font-size:22px; font-weight:800;">📅 Seguimiento Diario de Ventas</p>
     </div>""", unsafe_allow_html=True)
 
-    if df_diario.empty:
-        st.warning("No se encontró la hoja **Diario** en el Excel.")
-        st.stop()
-
     prod_sel = st.selectbox("📦 Producto", ["Todos"] + PRODUCTOS_ORDEN, key="d_prod")
 
-    df_d = df_diario.copy()
-    if gestor_sel != "Todos": df_d = df_d[df_d["Gestor"] == gestor_sel]
-    if depto_sel  != "Todos": df_d = df_d[df_d["Departamento"] == depto_sel]
-    if prod_sel   != "Todos": df_d = df_d[df_d["Producto"] == prod_sel]
+    def _safe_int(s):
+        """Convierte a int ignorando NaN e inf."""
+        return pd.to_numeric(s, errors="coerce").fillna(0).replace(
+            [float("inf"), float("-inf")], 0).round(0).astype(int)
 
-    # KPIs del último día
-    ultimo_dia  = df_d["Fecha"].max()
-    df_hoy_all  = df_d[df_d["Fecha"] == ultimo_dia]
-    v_hoy = df_hoy_all["Venta_Dia"].sum()
-    c_hoy = df_hoy_all["CuotaDiaria"].sum()
+    # ── Base siempre desde df_raw: todos los gestores × productos con cuota ──
+    # Así se ven cuotas aunque no haya ventas en Diario.
+    _hoy = pd.Timestamp(date.today())
+    _base_hoy = df_raw[["Gestor","Departamento","Producto","CuotaDiaria"]].copy()
+    _base_hoy = _base_hoy[_base_hoy["CuotaDiaria"] > 0].copy()
+    _base_hoy["Fecha"]     = _hoy
+    _base_hoy["Venta_Dia"] = 0.0
+
+    # Aplicar filtros de barra lateral
+    if gestor_sel != "Todos": _base_hoy = _base_hoy[_base_hoy["Gestor"] == gestor_sel]
+    if depto_sel  != "Todos": _base_hoy = _base_hoy[_base_hoy["Departamento"] == depto_sel]
+    if prod_sel   != "Todos": _base_hoy = _base_hoy[_base_hoy["Producto"] == prod_sel]
+
+    # Unir ventas reales de hoy si las hay
+    if not df_diario.empty and "Fecha" in df_diario.columns:
+        _ref_dia = df_diario["Fecha"].max()   # último día con datos
+        _ventas_ref = (df_diario[df_diario["Fecha"] == _ref_dia]
+                       .groupby(["Gestor","Producto"])["Venta_Dia"].sum()
+                       .reset_index().rename(columns={"Venta_Dia":"_V"}))
+        _base_hoy = _base_hoy.merge(_ventas_ref, on=["Gestor","Producto"], how="left")
+        _base_hoy["Venta_Dia"] = _base_hoy["_V"].fillna(0)
+        _base_hoy = _base_hoy.drop(columns=["_V"])
+        _label_dia = str(_ref_dia)[:10]
+    else:
+        _label_dia = _hoy.strftime("%Y-%m-%d")
+
+    # KPIs
+    v_hoy  = _base_hoy["Venta_Dia"].sum()
+    c_hoy  = _base_hoy["CuotaDiaria"].sum()
     cp_hoy = (v_hoy / c_hoy * 100) if c_hoy else 0
     emoji_hoy = "🟢" if cp_hoy >= 100 else ("🟡" if cp_hoy >= 80 else "🔴")
 
     render_kpi_row([
-        {"label":"📅 Último día",       "value": str(ultimo_dia)[:10],   "color":"#0A2A5E"},
-        {"label":"Venta Total",         "value": f"{v_hoy:.0f}",         "color":"#0B5ED7"},
-        {"label":"Cuota Total",         "value": f"{c_hoy:.0f}",         "color":"#0B5ED7"},
+        {"label":"📅 Referencia",           "value": _label_dia,         "color":"#0A2A5E"},
+        {"label":"Venta Total",             "value": f"{v_hoy:.0f}",     "color":"#0B5ED7"},
+        {"label":"Cuota Diaria Prorrateada","value": f"{c_hoy:.0f}",     "color":"#0B5ED7"},
         {"label":f"{emoji_hoy} Cumpl. del Día",
          "value": f"{cp_hoy:.0f}%",
          "color":"#198754" if cp_hoy >= 100 else ("#B45309" if cp_hoy >= 80 else "#DC3545")},
@@ -2083,18 +2103,12 @@ with tab3:
 
     st.markdown("<div style='margin-top:12px'></div>", unsafe_allow_html=True)
 
-    # ── Tabla pivot gestores × productos (último día) ─────────────────────────
-    subheader(f"📋 Estado por Gestor — {str(ultimo_dia)[:10]}")
+    # ── Tabla pivot gestores × productos ─────────────────────────────────────
+    subheader(f"📋 Estado por Gestor — {_label_dia}")
 
-    df_hoy_base = df_diario[df_diario["Fecha"] == ultimo_dia].copy()
-    if depto_sel  != "Todos": df_hoy_base = df_hoy_base[df_hoy_base["Departamento"] == depto_sel]
-    if prod_sel   != "Todos": df_hoy_base = df_hoy_base[df_hoy_base["Producto"] == prod_sel]
-
-    grp_h = (
-        df_hoy_base.groupby(["Gestor","Producto"])
-        .agg(Cuota=("CuotaDiaria","sum"), Venta=("Venta_Dia","sum"))
-        .reset_index()
-    )
+    grp_h = (_base_hoy.groupby(["Gestor","Producto"])
+                       .agg(Cuota=("CuotaDiaria","sum"), Venta=("Venta_Dia","sum"))
+                       .reset_index())
     prods_h = [p for p in PRODUCTOS_ORDEN if p in grp_h["Producto"].unique()] \
               if prod_sel == "Todos" else [prod_sel]
 
@@ -2103,83 +2117,82 @@ with tab3:
     p_k = (p_v / p_c * 100).round(0)
 
     tuples_h = [(p, m) for p in prods_h for m in ["Cuota","Ventas","Cumpl%"]]
-    pivot_h  = pd.DataFrame(index=p_c.index,
-                             columns=pd.MultiIndex.from_tuples(tuples_h))
+    pivot_h  = pd.DataFrame(index=p_c.index, columns=pd.MultiIndex.from_tuples(tuples_h))
     pivot_h.index.name = "Gestor"
-    def _safe_int(s):
-        """Convierte a int ignorando NaN e inf (los reemplaza por 0)."""
-        return pd.to_numeric(s, errors="coerce").fillna(0).replace(
-            [float("inf"), float("-inf")], 0).round(0).astype(int)
-
     for p in prods_h:
         pivot_h[(p,"Cuota")]  = _safe_int(p_c[p])
         pivot_h[(p,"Ventas")] = _safe_int(p_v[p])
         pivot_h[(p,"Cumpl%")] = _safe_int(p_k[p])
 
-    pivot_h_disp = pivot_h.copy()
-    for p in prods_h:
-        pivot_h_disp[(p,"Cumpl%")] = pivot_h[(p,"Cumpl%")].apply(lambda x: f"{x}%")
-
     st.markdown(_pivot_to_html(pivot_h, "Gestor", prods_h), unsafe_allow_html=True)
-
     st.markdown("<div style='margin-top:16px'></div>", unsafe_allow_html=True)
 
-    # ── Acumulado mes ─────────────────────────────────────────────────────────
+    # ── Acumulado mes (solo si hay datos en Diario) ───────────────────────────
     subheader("📈 Acumulado del Mes: Ventas vs Meta")
-    df_dia_agg = (
-        df_d.groupby("Fecha")
-        .agg(Venta_Dia=("Venta_Dia","sum"), CuotaDiaria=("CuotaDiaria","sum"))
-        .reset_index().sort_values("Fecha")
-    )
-    df_dia_agg["Venta_Acum"] = df_dia_agg["Venta_Dia"].cumsum()
-    df_dia_agg["Cuota_Acum"] = df_dia_agg["CuotaDiaria"].cumsum()
 
-    fig_acum = go.Figure()
-    fig_acum.add_trace(go.Scatter(
-        x=df_dia_agg["Fecha"], y=df_dia_agg["Venta_Acum"],
-        mode="lines+markers", name="Ventas Acumuladas",
-        line=dict(color="#2E75B6", width=2.5), marker=dict(size=5)
-    ))
-    fig_acum.add_trace(go.Scatter(
-        x=df_dia_agg["Fecha"], y=df_dia_agg["Cuota_Acum"],
-        mode="lines", name="Meta Acumulada",
-        line=dict(color="#E45756", dash="dash", width=2)
-    ))
-    fig_acum.add_trace(go.Scatter(
-        x=pd.concat([df_dia_agg["Fecha"], df_dia_agg["Fecha"][::-1]]).tolist(),
-        y=pd.concat([df_dia_agg["Venta_Acum"], df_dia_agg["Cuota_Acum"][::-1]]).tolist(),
-        fill="toself", fillcolor="rgba(76,120,168,0.1)",
-        line=dict(color="rgba(255,255,255,0)"), showlegend=False, hoverinfo="skip"
-    ))
-    fig_acum.update_layout(
-        plot_bgcolor="white", paper_bgcolor="white",
-        xaxis=dict(title="", gridcolor="#EEF2F7"),
-        yaxis=dict(title="Unidades", gridcolor="#EEF2F7"),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02),
-        margin=dict(t=20, b=10)
-    )
-    st.plotly_chart(fig_acum, use_container_width=True)
+    if df_diario.empty:
+        st.info("Aún no hay ventas registradas en Diario. Las cuotas prorrateadas aparecen arriba.")
+    else:
+        df_d = df_diario.copy()
+        if gestor_sel != "Todos": df_d = df_d[df_d["Gestor"] == gestor_sel]
+        if depto_sel  != "Todos": df_d = df_d[df_d["Departamento"] == depto_sel]
+        if prod_sel   != "Todos": df_d = df_d[df_d["Producto"] == prod_sel]
+        df_dia_agg = (
+            df_d.groupby("Fecha")
+            .agg(Venta_Dia=("Venta_Dia","sum"), CuotaDiaria=("CuotaDiaria","sum"))
+            .reset_index().sort_values("Fecha")
+        )
+        df_dia_agg["Venta_Acum"] = df_dia_agg["Venta_Dia"].cumsum()
+        df_dia_agg["Cuota_Acum"] = df_dia_agg["CuotaDiaria"].cumsum()
 
-    subheader("📊 Ventas Diarias vs Cuota")
-    df_dia_agg["Cumpl_Dia_%"] = (df_dia_agg["Venta_Dia"] / df_dia_agg["CuotaDiaria"] * 100).round(1)
-    fig_bar = go.Figure()
-    fig_bar.add_trace(go.Bar(
-        x=df_dia_agg["Fecha"], y=df_dia_agg["Venta_Dia"], name="Venta Día",
-        marker_color=df_dia_agg["Cumpl_Dia_%"].apply(
-            lambda x: "#54A24B" if x >= 100 else ("#F4D03F" if x >= 80 else "#E45756"))
-    ))
-    fig_bar.add_trace(go.Scatter(
-        x=df_dia_agg["Fecha"], y=df_dia_agg["CuotaDiaria"],
-        mode="lines", name="Cuota Día", line=dict(color="#E45756", dash="dot", width=2)
-    ))
-    fig_bar.update_layout(
-        plot_bgcolor="white", paper_bgcolor="white",
-        xaxis=dict(title="", gridcolor="#EEF2F7"),
-        yaxis=dict(title="Unidades", gridcolor="#EEF2F7"),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02),
-        margin=dict(t=20, b=10)
-    )
-    st.plotly_chart(fig_bar, use_container_width=True)
+        fig_acum = go.Figure()
+        fig_acum.add_trace(go.Scatter(
+            x=df_dia_agg["Fecha"], y=df_dia_agg["Venta_Acum"],
+            mode="lines+markers", name="Ventas Acumuladas",
+            line=dict(color="#2E75B6", width=2.5), marker=dict(size=5)
+        ))
+        fig_acum.add_trace(go.Scatter(
+            x=df_dia_agg["Fecha"], y=df_dia_agg["Cuota_Acum"],
+            mode="lines", name="Meta Acumulada",
+            line=dict(color="#E45756", dash="dash", width=2)
+        ))
+        fig_acum.add_trace(go.Scatter(
+            x=pd.concat([df_dia_agg["Fecha"], df_dia_agg["Fecha"][::-1]]).tolist(),
+            y=pd.concat([df_dia_agg["Venta_Acum"], df_dia_agg["Cuota_Acum"][::-1]]).tolist(),
+            fill="toself", fillcolor="rgba(76,120,168,0.1)",
+            line=dict(color="rgba(255,255,255,0)"), showlegend=False, hoverinfo="skip"
+        ))
+        fig_acum.update_layout(
+            plot_bgcolor="white", paper_bgcolor="white",
+            xaxis=dict(title="", gridcolor="#EEF2F7"),
+            yaxis=dict(title="Unidades", gridcolor="#EEF2F7"),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02),
+            margin=dict(t=20, b=10)
+        )
+        st.plotly_chart(fig_acum, use_container_width=True)
+
+        subheader("📊 Ventas Diarias vs Cuota")
+        df_dia_agg["Cumpl_Dia_%"] = (
+            df_dia_agg["Venta_Dia"] / df_dia_agg["CuotaDiaria"].replace(0, float("nan")) * 100
+        ).fillna(0).round(1)
+        fig_bar = go.Figure()
+        fig_bar.add_trace(go.Bar(
+            x=df_dia_agg["Fecha"], y=df_dia_agg["Venta_Dia"], name="Venta Día",
+            marker_color=df_dia_agg["Cumpl_Dia_%"].apply(
+                lambda x: "#54A24B" if x >= 100 else ("#F4D03F" if x >= 80 else "#E45756"))
+        ))
+        fig_bar.add_trace(go.Scatter(
+            x=df_dia_agg["Fecha"], y=df_dia_agg["CuotaDiaria"],
+            mode="lines", name="Cuota Día", line=dict(color="#E45756", dash="dot", width=2)
+        ))
+        fig_bar.update_layout(
+            plot_bgcolor="white", paper_bgcolor="white",
+            xaxis=dict(title="", gridcolor="#EEF2F7"),
+            yaxis=dict(title="Unidades", gridcolor="#EEF2F7"),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02),
+            margin=dict(t=20, b=10)
+        )
+        st.plotly_chart(fig_bar, use_container_width=True)
 
     # ── Resumen Semanal ──────────────────────────────────────────────────────
     st.markdown("<div style='margin-top:8px'></div>", unsafe_allow_html=True)
@@ -2296,7 +2309,7 @@ with tab4:
                             border-left:4px solid #C9982A;">
                     <span style="font-size:14px; color:#FFFFFF; font-weight:700;">
                         👤 {gestor_activo}</span>
-                    <span style                    <span style="color:rgba(255,255,255,0.65); font-size:12px;"> · {depto_activo}</span>
+                    <span style="color:rgba(255,255,255,0.65); font-size:12px;"> · {depto_activo}</span>
                 </div>""", unsafe_allow_html=True)
 
                 r1c1, r1c2 = st.columns(2)
