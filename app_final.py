@@ -388,18 +388,19 @@ def calcular_puntos_producto(df_mensual: pd.DataFrame, df_diario: pd.DataFrame) 
     """
     Calcula Puntos_Producto por Gestor × Producto.
 
-    Reglas:
-      1. PD_Diario   : puntos fijos por cada día donde Venta_Dia >= CuotaDiaria
-      2. PD_Semanal  : 10 pts por cada semana donde Venta_semana >= CuotaDiaria × 5
-      3. PD_Mensual  : 40 pts si Venta >= Cuota mensual
-      4. PD_MesAnt   : 15 pts si Venta > VentaMesAnterior
-      5. PD_Extra    : N pts por cada unidad adicional sobre cuota diaria (solo días cumplidos)
-      6. PD_UR       : 15 pts si Prepago alcanza >= 55 % de su cuota mensual (fila Prepago)
-
-    Retorna DataFrame con columnas:
-      Gestor, Producto, PD_Diario, PD_Extra, PD_Semanal,
-      PD_Mensual, PD_MesAnt, PD_UR, Puntos_Producto
+    Reglas (nombres oficiales del criterio):
+      1. Cumple cuota diaria  (PD_Diario)  : pts fijos por día con Venta_Dia >= CuotaDiaria
+      2. Supera cuota diaria  (PD_Extra)   : pts por unidad extra en días cumplidos
+      3. Semana >= 100% cuota (PD_Semanal) : 10 pts si Venta_Semana >= Cuota_Mensual/N_Semanas
+      4. Mes >= 100% cuota    (PD_Mensual) : 40 pts si Venta_Mes >= Cuota_Mensual
+      5. Semana > prom.mes ant(PD_MesAnt)  : 15 pts por semana donde Venta_Sem > VentaAnt/N_Semanas
+      6. UR Prepago           (PD_UR)      : 15 pts si Prepago >= 55% de su cuota mensual
     """
+    import calendar as _cal_pts
+    _hoy_pts    = date.today()
+    _n_dias_mes = _cal_pts.monthrange(_hoy_pts.year, _hoy_pts.month)[1]
+    _n_semanas  = (_n_dias_mes - 1) // 7 + 1   # semanas del mes (grupos de 7 días)
+
     filas = []
 
     for (gestor, producto), grp_m in df_mensual.groupby(["Gestor", "Producto"]):
@@ -412,7 +413,12 @@ def calcular_puntos_producto(df_mensual: pd.DataFrame, df_diario: pd.DataFrame) 
         pts_dia_u   = PTS_CUOTA_DIARIA.get(producto, 2)
         pts_extra_u = PTS_EXTRA_DIARIA.get(producto, 3)
 
-        pd_diario = pd_extra = pd_semanal = 0
+        # Cuota semanal = cuota mensual / nº semanas del mes
+        cuota_sem    = cuota_m / _n_semanas if (_n_semanas > 0 and cuota_m > 0) else 0
+        # Promedio semanal del mes anterior (por producto)
+        prom_sem_ant = venta_ant / _n_semanas if (_n_semanas > 0 and venta_ant > 0) else 0
+
+        pd_diario = pd_extra = pd_semanal = pd_mes_ant = 0
 
         # ── Datos diarios ────────────────────────────────────────────────────
         if not df_diario.empty and "Gestor" in df_diario.columns:
@@ -422,37 +428,42 @@ def calcular_puntos_producto(df_mensual: pd.DataFrame, df_diario: pd.DataFrame) 
             if not grp_d.empty:
                 cd_col = grp_d["CuotaDiaria"] if "CuotaDiaria" in grp_d.columns else cuota_d
 
-                # 1. Días con cuota cumplida
+                # 1. Cumple cuota diaria
                 dias_ok   = grp_d["Venta_Dia"] >= cd_col
                 pd_diario = int(dias_ok.sum()) * pts_dia_u
 
-                # 5. Unidades extra (solo en días cumplidos)
+                # 2. Supera cuota diaria (unidades extra, solo días cumplidos)
                 grp_d["_extra"] = (grp_d["Venta_Dia"] - cd_col).clip(lower=0)
                 pd_extra = int(grp_d.loc[dias_ok, "_extra"].sum()) * pts_extra_u
 
-                # 2. Cuota semanal (cuota diaria × 5 días hábiles)
-                grp_d["_semana"] = grp_d["Fecha"].dt.isocalendar().week.astype(int)
-                cuota_sem        = cuota_d * 5
-                semanas_ok       = (grp_d.groupby("_semana")["Venta_Dia"].sum() >= cuota_sem).sum()
-                pd_semanal       = int(semanas_ok) * PTS_CUOTA_SEMANAL
+                # Agrupar por semana del mes: día 1-7=sem1, 8-14=sem2, etc.
+                grp_d["_semana"] = grp_d["Fecha"].dt.day.apply(lambda d: (d - 1) // 7 + 1)
+                ventas_sem = grp_d.groupby("_semana")["Venta_Dia"].sum()
 
-        # 3. Cuota mensual
+                # 3. Semana >= 100% cuota semanal
+                if cuota_sem > 0:
+                    semanas_ok = (ventas_sem >= cuota_sem).sum()
+                    pd_semanal = int(semanas_ok) * PTS_CUOTA_SEMANAL
+
+                # 5. Semana > promedio semanal del mes anterior
+                if prom_sem_ant > 0:
+                    semanas_vs_ant = (ventas_sem > prom_sem_ant).sum()
+                    pd_mes_ant     = int(semanas_vs_ant) * PTS_MES_ANTERIOR
+
+        # 4. Mes >= 100% cuota mensual
         pd_mensual = PTS_CUOTA_MENSUAL if (cuota_m > 0 and venta_m >= cuota_m) else 0
-
-        # 4. Mes anterior
-        pd_mes_ant = PTS_MES_ANTERIOR if (venta_ant > 0 and venta_m > venta_ant) else 0
 
         total = pd_diario + pd_extra + pd_semanal + pd_mensual + pd_mes_ant
 
         filas.append({
-            "Gestor":   gestor,
-            "Producto": producto,
-            "PD_Diario":  pd_diario,
-            "PD_Extra":   pd_extra,
-            "PD_Semanal": pd_semanal,
-            "PD_Mensual": pd_mensual,
-            "PD_MesAnt":  pd_mes_ant,
-            "PD_UR":      0,           # se rellena abajo
+            "Gestor":          gestor,
+            "Producto":        producto,
+            "PD_Diario":       pd_diario,
+            "PD_Extra":        pd_extra,
+            "PD_Semanal":      pd_semanal,
+            "PD_Mensual":      pd_mensual,
+            "PD_MesAnt":       pd_mes_ant,
+            "PD_UR":           0,
             "Puntos_Producto": total,
         })
 
@@ -463,12 +474,13 @@ def calcular_puntos_producto(df_mensual: pd.DataFrame, df_diario: pd.DataFrame) 
 
     df_pts = pd.DataFrame(filas)
 
-    # 6. UR: Prepago cumplimiento >= 55 % → 15 pts (asignado a la fila Prepago)
+    # 6. UR Prepago: cumplimiento >= 55 %
     prepago_m = df_mensual[df_mensual["Producto"] == "Prepago"][["Gestor","Cuota","Venta"]].copy()
-    prepago_m["_cumpl_pre"] = prepago_m["Venta"] / prepago_m["Cuota"]
+    prepago_m["_cumpl_pre"] = (prepago_m["Venta"] /
+                                prepago_m["Cuota"].replace(0, float("nan")))
     ur_map = (
         prepago_m.set_index("Gestor")["_cumpl_pre"]
-        .apply(lambda x: PTS_UR if x >= UR_UMBRAL else 0)
+        .apply(lambda x: PTS_UR if pd.notna(x) and x >= UR_UMBRAL else 0)
         .to_dict()
     )
     mask_pre = df_pts["Producto"] == "Prepago"
@@ -1580,10 +1592,8 @@ else:
 for c in ["Pts_Adicionales","Pts_Extra_Diario","Pts_Semanal","Pts_Sem_vs_Ant"]:
     df[c] = df[c].fillna(0).astype(int)
 
-df["Total_Puntos"] = (
-    df["Puntos_Base"] + df["Puntos_Diario"] + df["Puntos_Crec"] +
-    df["Puntos_Producto"] + df["Pts_Adicionales"]
-)
+# Total = exactamente la suma de los 6 criterios del motor (trazable)
+df["Total_Puntos"] = df["Puntos_Producto"]
 
 # ============================================================================
 # FILTROS GLOBALES
@@ -1669,30 +1679,102 @@ if st.session_state.get("es_admin"):
     if "_puntos_excel_bytes" not in st.session_state:
         if st.sidebar.button("🔄 Preparar Excel de puntos",
                              key="btn_prep_pts_sb", use_container_width=True):
-            import io as _io_sb
-            _buf_sb = _io_sb.BytesIO()
+            import io as _io_sb, calendar as _cal_sb
+            _buf_sb    = _io_sb.BytesIO()
+            _hoy_sb    = date.today()
+            _n_dias_sb = _cal_sb.monthrange(_hoy_sb.year, _hoy_sb.month)[1]
+            _n_sem_sb  = (_n_dias_sb - 1) // 7 + 1
             try:
-                _df_sb = df.groupby(["Gestor","Departamento"]).agg(**AGG_COLS).reset_index()
-                _df_sb["Cumplimiento_%"] = (
-                    _df_sb["Venta"] / _df_sb["Cuota"] * 100).round(1)
-                _df_sb = (_df_sb.sort_values("Total_Puntos", ascending=False)
-                          .reset_index(drop=True))
-                _df_sb.insert(0, "Puesto", range(1, len(_df_sb)+1))
-                _df_sb = _df_sb.rename(columns={
-                    "Venta":"Ventas","Cuota":"Meta","Cumplimiento_%":"Cumpl%",
-                    "PD_Diario":"Días Cumplidos","PD_Extra":"Extra Unidades",
-                    "PD_Semanal":"Semanas Cumplidas","PD_Mensual":"Mes Cumplido",
-                    "PD_MesAnt":"Supera Mes Ant.","PD_UR":"UR Prepago",
-                    "Puntos_Producto":"Motor Pts","Total_Puntos":"TOTAL PTS",
-                })
                 with pd.ExcelWriter(_buf_sb, engine="openpyxl") as _wr_sb:
-                    _df_sb.to_excel(_wr_sb, sheet_name="Puntos Gestores", index=False)
+
+                    # ── Hoja 1: Resumen por Gestor ────────────────────────────
+                    _res = df.groupby(["Gestor","Departamento"]).agg(**AGG_COLS).reset_index()
+                    _res["Cumpl%"] = (_res["Venta"] / _res["Cuota"] * 100).round(1)
+                    _res = _res.sort_values("Total_Puntos", ascending=False).reset_index(drop=True)
+                    _res.insert(0, "Puesto", range(1, len(_res)+1))
+                    _res = _res.rename(columns={
+                        "Venta":"Ventas","Cuota":"Meta",
+                        "PD_Diario":  "Cumple cuota diaria",
+                        "PD_Extra":   "Supera cuota diaria",
+                        "PD_Semanal": "Semana>=100% cuota",
+                        "PD_Mensual": "Mes>=100% cuota",
+                        "PD_MesAnt":  "Semana>prom.mes ant.",
+                        "PD_UR":      "UR Prepago",
+                        "Total_Puntos":"TOTAL PTS",
+                    })
+                    _cols_res = ["Puesto","Gestor","Departamento","Meta","Ventas","Cumpl%",
+                                 "Cumple cuota diaria","Supera cuota diaria",
+                                 "Semana>=100% cuota","Mes>=100% cuota",
+                                 "Semana>prom.mes ant.","UR Prepago","TOTAL PTS"]
+                    _res[[c for c in _cols_res if c in _res.columns]].to_excel(
+                        _wr_sb, sheet_name="Resumen Gestores", index=False)
+
+                    # ── Hoja 2: Detalle Diario ────────────────────────────────
                     if not df_diario.empty:
-                        _dd_sb = df_diario.copy()
-                        _dd_sb["Fecha"] = (pd.to_datetime(_dd_sb["Fecha"])
-                                           .dt.strftime("%Y-%m-%d"))
-                        _dd_sb.to_excel(_wr_sb, sheet_name="Detalle Diario", index=False)
-            except Exception:
+                        _dd = df_diario.copy()
+                        _dd["Fecha"] = pd.to_datetime(_dd["Fecha"]).dt.strftime("%Y-%m-%d")
+                        # Cuota diaria desde df_raw
+                        _cmap = (df_raw.drop_duplicates(["Gestor","Producto"])
+                                 .set_index(["Gestor","Producto"])["CuotaDiaria"].to_dict())
+                        _dd["Cuota_Diaria"] = _dd.apply(
+                            lambda r: _cmap.get((r["Gestor"], r["Producto"]), 0), axis=1)
+                        _dd["Cumpl_Dia%"]   = (_dd["Venta_Dia"] /
+                                                _dd["Cuota_Diaria"].replace(0, float("nan")) * 100).round(1).fillna(0)
+                        _dd["Cumple"]       = _dd.apply(
+                            lambda r: "Sí" if r["Venta_Dia"] >= r["Cuota_Diaria"] else "No", axis=1)
+                        # Puntos diarios
+                        _pts_dia_map  = PTS_CUOTA_DIARIA
+                        _pts_ext_map  = PTS_EXTRA_DIARIA
+                        _dd["Pts_Cumple"]  = _dd.apply(
+                            lambda r: _pts_dia_map.get(r["Producto"],2) if r["Cumple"]=="Sí" else 0, axis=1)
+                        _dd["Extra_Uds"]   = _dd.apply(
+                            lambda r: max(0, r["Venta_Dia"] - r["Cuota_Diaria"]) if r["Cumple"]=="Sí" else 0, axis=1)
+                        _dd["Pts_Extra"]   = _dd.apply(
+                            lambda r: int(r["Extra_Uds"]) * _pts_ext_map.get(r["Producto"],3), axis=1)
+                        _dd = _dd.rename(columns={"Venta_Dia":"Venta_Real"})
+                        _cols_dd = ["Gestor","Departamento","Producto","Fecha",
+                                    "Cuota_Diaria","Venta_Real","Cumpl_Dia%",
+                                    "Cumple","Pts_Cumple","Extra_Uds","Pts_Extra"]
+                        _dd[[c for c in _cols_dd if c in _dd.columns]].sort_values(
+                            ["Gestor","Producto","Fecha"]).to_excel(
+                            _wr_sb, sheet_name="Detalle Diario", index=False)
+
+                    # ── Hoja 3: Detalle Semanal ───────────────────────────────
+                    if not df_diario.empty:
+                        _ds = df_diario.copy()
+                        _ds["Semana"] = pd.to_datetime(_ds["Fecha"]).dt.day.apply(
+                            lambda d: (d - 1) // 7 + 1)
+                        # cuota mensual por gestor×producto
+                        _cmes_map = (df_raw.drop_duplicates(["Gestor","Producto"])
+                                     .set_index(["Gestor","Producto"])["Cuota"].to_dict())
+                        _vant_map = (df_raw.drop_duplicates(["Gestor","Producto"])
+                                     .set_index(["Gestor","Producto"])["VentaMesAnterior"].to_dict()
+                                     if "VentaMesAnterior" in df_raw.columns else {})
+                        _sem_agg = (_ds.groupby(["Gestor","Departamento","Producto","Semana"])
+                                    ["Venta_Dia"].sum().reset_index()
+                                    .rename(columns={"Venta_Dia":"Venta_Semanal"}))
+                        _sem_agg["Cuota_Semanal"] = _sem_agg.apply(
+                            lambda r: round(_cmes_map.get((r["Gestor"],r["Producto"]),0)/_n_sem_sb,1)
+                            if _n_sem_sb>0 else 0, axis=1)
+                        _sem_agg["Cumpl_Sem%"] = (_sem_agg["Venta_Semanal"] /
+                            _sem_agg["Cuota_Semanal"].replace(0,float("nan"))*100).round(1).fillna(0)
+                        _sem_agg["Cumple_100%"] = _sem_agg.apply(
+                            lambda r: "Sí" if r["Venta_Semanal"]>=r["Cuota_Semanal"] else "No", axis=1)
+                        _sem_agg["Pts_Semana"] = _sem_agg["Cumple_100%"].apply(
+                            lambda x: PTS_CUOTA_SEMANAL if x=="Sí" else 0)
+                        _sem_agg["Prom_Sem_MesAnt"] = _sem_agg.apply(
+                            lambda r: round(_vant_map.get((r["Gestor"],r["Producto"]),0)/_n_sem_sb,1)
+                            if _n_sem_sb>0 else 0, axis=1)
+                        _sem_agg["Supera_Prom_Ant"] = _sem_agg.apply(
+                            lambda r: "Sí" if (r["Prom_Sem_MesAnt"]>0 and
+                                               r["Venta_Semanal"]>r["Prom_Sem_MesAnt"]) else "No",
+                            axis=1)
+                        _sem_agg["Pts_Crecimiento"] = _sem_agg["Supera_Prom_Ant"].apply(
+                            lambda x: PTS_MES_ANTERIOR if x=="Sí" else 0)
+                        _sem_agg.sort_values(["Gestor","Producto","Semana"]).to_excel(
+                            _wr_sb, sheet_name="Detalle Semanal", index=False)
+
+            except Exception as _e_sb:
                 pass
             _buf_sb.seek(0)
             st.session_state["_puntos_excel_bytes"] = _buf_sb.read()
