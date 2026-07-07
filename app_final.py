@@ -1662,6 +1662,55 @@ with st.sidebar.expander("🆕 Motor por producto"):
 | UR Prepago ≥ 55 % cuota | 15 |
 """)
 
+# ── Descarga de puntos (solo admin) ────────────────────────────────────────
+if st.session_state.get("es_admin"):
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("##### 📥 Descargar Puntos")
+    if "_puntos_excel_bytes" not in st.session_state:
+        if st.sidebar.button("🔄 Preparar Excel de puntos",
+                             key="btn_prep_pts_sb", use_container_width=True):
+            import io as _io_sb
+            _buf_sb = _io_sb.BytesIO()
+            try:
+                _df_sb = df.groupby(["Gestor","Departamento"]).agg(**AGG_COLS).reset_index()
+                _df_sb["Cumplimiento_%"] = (
+                    _df_sb["Venta"] / _df_sb["Cuota"] * 100).round(1)
+                _df_sb = (_df_sb.sort_values("Total_Puntos", ascending=False)
+                          .reset_index(drop=True))
+                _df_sb.insert(0, "Puesto", range(1, len(_df_sb)+1))
+                _df_sb = _df_sb.rename(columns={
+                    "Venta":"Ventas","Cuota":"Meta","Cumplimiento_%":"Cumpl%",
+                    "PD_Diario":"Días Cumplidos","PD_Extra":"Extra Unidades",
+                    "PD_Semanal":"Semanas Cumplidas","PD_Mensual":"Mes Cumplido",
+                    "PD_MesAnt":"Supera Mes Ant.","PD_UR":"UR Prepago",
+                    "Puntos_Producto":"Motor Pts","Total_Puntos":"TOTAL PTS",
+                })
+                with pd.ExcelWriter(_buf_sb, engine="openpyxl") as _wr_sb:
+                    _df_sb.to_excel(_wr_sb, sheet_name="Puntos Gestores", index=False)
+                    if not df_diario.empty:
+                        _dd_sb = df_diario.copy()
+                        _dd_sb["Fecha"] = (pd.to_datetime(_dd_sb["Fecha"])
+                                           .dt.strftime("%Y-%m-%d"))
+                        _dd_sb.to_excel(_wr_sb, sheet_name="Detalle Diario", index=False)
+            except Exception:
+                pass
+            _buf_sb.seek(0)
+            st.session_state["_puntos_excel_bytes"] = _buf_sb.read()
+            st.rerun()
+    else:
+        st.sidebar.download_button(
+            label="📥 Descargar Excel de puntos",
+            data=st.session_state["_puntos_excel_bytes"],
+            file_name=f"Puntos_Fanero_{date.today().strftime('%Y%m%d')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+            key="btn_dl_pts_sidebar",
+        )
+        if st.sidebar.button("🔁 Actualizar datos",
+                             key="btn_regen_pts", use_container_width=True):
+            del st.session_state["_puntos_excel_bytes"]
+            st.rerun()
+
 # ============================================================================
 # MENÚ ☰ — esquina superior derecha (Admin · Configuración · Gestores DNI)
 # ============================================================================
@@ -1808,65 +1857,7 @@ with _col_menu:
                 st.success("✅ PDV guardado — recargando…")
                 st.rerun()
 
-            # ── Descarga de avances (admin only) ──────────────────────────
-            st.markdown("---")
-            st.markdown("##### 📥 Descargar Avances")
-            st.caption("Excel con puntos y avance diario de todos los gestores.")
 
-            def _generar_excel_avances() -> bytes:
-                import io
-                buf = io.BytesIO()
-                with pd.ExcelWriter(buf, engine="openpyxl") as writer:
-                    # ── Hoja 1: Puntos por Gestor ────────────────────────
-                    cols_pts = ["Gestor","Departamento","Cuota","Venta",
-                                "Cumplimiento_%","Puntos_Base","Puntos_Crec",
-                                "PD_Diario","PD_Extra","PD_Semanal",
-                                "PD_Mensual","PD_MesAnt","PD_UR",
-                                "Puntos_Producto","Total_Puntos"]
-                    df_pts_exp = df_gestor[
-                        [c for c in cols_pts if c in df_gestor.columns]
-                    ].copy().sort_values("Total_Puntos", ascending=False)
-                    df_pts_exp.insert(0, "Puesto", range(1, len(df_pts_exp)+1))
-                    df_pts_exp.to_excel(writer, sheet_name="Puntos por Gestor",
-                                        index=False)
-
-                    # ── Hoja 2: Avance Diario ────────────────────────────
-                    if not df_diario.empty:
-                        df_dia_exp = df_diario.copy()
-                        df_dia_exp["Fecha"] = pd.to_datetime(
-                            df_dia_exp["Fecha"]).dt.strftime("%Y-%m-%d")
-                        if "Cuota" in df_gestor.columns:
-                            meta_map = (df_gestor.groupby(["Gestor","Producto"])
-                                        ["Cuota"].sum())
-                            df_dia_exp["Meta_Mensual"] = df_dia_exp.apply(
-                                lambda r: meta_map.get(
-                                    (r["Gestor"], r["Producto"]), 0), axis=1)
-                        df_dia_exp = df_dia_exp.sort_values(
-                            ["Gestor","Producto","Fecha"])
-                        df_dia_exp.to_excel(writer, sheet_name="Avance Diario",
-                                            index=False)
-
-                    # ── Hoja 3: Ranking Puntos Diarios ────────────────────
-                    if not df_diario.empty:
-                        rank_d = (df_diario.groupby(["Fecha","Gestor"])
-                                  ["Venta_Dia"].sum().reset_index()
-                                  .sort_values(["Fecha","Venta_Dia"],
-                                               ascending=[True, False]))
-                        rank_d.to_excel(writer, sheet_name="Ranking Diario",
-                                        index=False)
-
-                buf.seek(0)
-                return buf.read()
-
-            _hoy_str = date.today().strftime("%Y%m%d")
-            st.download_button(
-                label="📥 Descargar Excel de Avances",
-                data=_generar_excel_avances(),
-                file_name=f"Avances_Gestores_{_hoy_str}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True,
-                key="btn_download_avances"
-            )
 
 # ============================================================================
 # TABS
@@ -2091,43 +2082,6 @@ with tab1:
     st.dataframe(_tbl10, hide_index=True, use_container_width=True,
                  column_config={"TOTAL PTS": st.column_config.NumberColumn(format="%d")})
 
-    # Descarga Excel con todos los gestores
-    def _gen_excel_puntos():
-        import io as _io2
-        _buf2 = _io2.BytesIO()
-        try:
-            _df_all2 = df.groupby(["Gestor","Departamento"]).agg(**AGG_COLS).reset_index()
-            _df_all2["Cumplimiento_%"] = (_df_all2["Venta"] / _df_all2["Cuota"] * 100).round(1)
-            _df_all2 = _df_all2.sort_values("Total_Puntos", ascending=False).reset_index(drop=True)
-            _df_all2.insert(0, "Puesto", range(1, len(_df_all2)+1))
-            _df_all2 = _df_all2.rename(columns={
-                "Venta":"Ventas","Cuota":"Meta","Cumplimiento_%":"Cumpl%",
-                "PD_Diario":"Días Cumplidos","PD_Extra":"Extra Unidades",
-                "PD_Semanal":"Semanas Cumplidas","PD_Mensual":"Mes Cumplido",
-                "PD_MesAnt":"Supera Mes Ant.","PD_UR":"UR Prepago",
-                "Puntos_Producto":"Motor Pts","Total_Puntos":"TOTAL PTS",
-            })
-            with pd.ExcelWriter(_buf2, engine="openpyxl") as _wr2:
-                _df_all2.to_excel(_wr2, sheet_name="Puntos Gestores", index=False)
-                if not df_diario.empty:
-                    _dd = df_diario.copy()
-                    _dd["Fecha"] = pd.to_datetime(_dd["Fecha"]).dt.strftime("%Y-%m-%d")
-                    _dd.to_excel(_wr2, sheet_name="Detalle Diario", index=False)
-        except Exception as _e2:
-            pass
-        _buf2.seek(0)
-        return _buf2.read()
-
-    _col_dl, _ = st.columns([2,1])
-    with _col_dl:
-        st.download_button(
-            label="📥 Descargar puntos de todos los gestores (Excel)",
-            data=_gen_excel_puntos(),
-            file_name=f"Puntos_Fanero_{date.today().strftime('%Y%m%d')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
-            key="btn_dl_puntos_tab1",
-        )
     st.markdown("<div style='margin-top:20px'></div>", unsafe_allow_html=True)
 
     # ── Ranking + tabla (2 columnas) ─────────────────────────────────────────
