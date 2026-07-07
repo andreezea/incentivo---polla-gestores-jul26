@@ -982,6 +982,50 @@ def _gh_put_file(path: str, content_str: str, message: str):
     except Exception:
         pass
 
+# ── Excel ↔ GitHub (persistencia permanente del archivo de datos) ─────────────
+GITHUB_EXCEL_PATH = "datos_incentivos.xlsx"
+
+def cargar_excel_desde_github() -> bytes | None:
+    """Descarga el Excel de datos desde GitHub. Retorna bytes o None."""
+    import requests, base64 as _b64
+    hdrs = _gh_headers()
+    if not hdrs:
+        return None
+    url = (f"https://api.github.com/repos/{GITHUB_REPO}"
+           f"/contents/{GITHUB_EXCEL_PATH}?ref={GITHUB_BRANCH}")
+    try:
+        r = requests.get(url, headers=hdrs, timeout=20)
+        if r.status_code == 200:
+            return _b64.b64decode(r.json()["content"])
+    except Exception:
+        pass
+    return None
+
+def guardar_excel_en_github(excel_bytes: bytes) -> bool:
+    """Sube el Excel a GitHub. Retorna True si OK."""
+    import requests, base64 as _b64
+    hdrs = _gh_headers()
+    if not hdrs:
+        return False
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_EXCEL_PATH}"
+    try:
+        r   = requests.get(url, headers=hdrs, timeout=10)
+        sha = r.json().get("sha") if r.status_code == 200 else None
+    except Exception:
+        sha = None
+    payload = {
+        "message": f"Datos incentivo {date.today().isoformat()}",
+        "content": _b64.b64encode(excel_bytes).decode(),
+        "branch":  GITHUB_BRANCH,
+    }
+    if sha:
+        payload["sha"] = sha
+    try:
+        rp = requests.put(url, headers=hdrs, json=payload, timeout=60)
+        return rp.status_code in (200, 201)
+    except Exception:
+        return False
+
 def acelerador_pdv(pct: float) -> float:
     """Devuelve el multiplicador de Prepago según % de cumplimiento de PDVs."""
     if pct >= 100: return 1.2
@@ -1275,15 +1319,31 @@ st.sidebar.markdown(
 # ── es_admin desde session_state ─────────────────────────────────────────────
 es_admin = st.session_state.get("es_admin", False)
 
-# ── Persistencia intra-sesión: si el Excel está en session_state pero no en disco ──
-if not os.path.exists(DATA_PATH) and "excel_bytes_cache" in st.session_state:
-    try:
-        with open(DATA_PATH, "wb") as _f_cache:
-            _f_cache.write(st.session_state["excel_bytes_cache"])
-    except Exception:
-        pass
-
+# ── Carga del Excel: disco → session_state → GitHub → demo ───────────────────
+# Prioridad: archivo en disco (más reciente) → cache en sesión →
+#            descarga desde GitHub (persiste entre reinicios) → datos demo.
 _modo_demo = False
+
+if not os.path.exists(DATA_PATH):
+    # Intentar session_state primero (rápido, sin red)
+    if "excel_bytes_cache" in st.session_state:
+        try:
+            with open(DATA_PATH, "wb") as _f_cache:
+                _f_cache.write(st.session_state["excel_bytes_cache"])
+        except Exception:
+            pass
+    else:
+        # Intentar GitHub (recupera datos tras reinicio de Streamlit Cloud)
+        with st.spinner("🔄 Recuperando datos desde GitHub…"):
+            _gh_bytes = cargar_excel_desde_github()
+        if _gh_bytes:
+            try:
+                with open(DATA_PATH, "wb") as _f_gh:
+                    _f_gh.write(_gh_bytes)
+                st.session_state["excel_bytes_cache"] = _gh_bytes
+            except Exception:
+                pass
+
 if os.path.exists(DATA_PATH):
     df_raw, df_diario, df_sem_ant = cargar_excel(DATA_PATH)
 else:
@@ -1591,7 +1651,13 @@ with _col_menu:
                 st.session_state["excel_bytes_cache"] = _fu_bytes   # persiste en sesión
                 with open(DATA_PATH, "wb") as _f:
                     _f.write(_fu_bytes)
-                st.success("✅ Datos guardados — recargando…")
+                # ── Subir a GitHub para persistir entre reinicios ─────────────
+                with st.spinner("Sincronizando con GitHub…"):
+                    _gh_ok = guardar_excel_en_github(_fu_bytes)
+                if _gh_ok:
+                    st.success("✅ Datos guardados y sincronizados con GitHub ✓")
+                else:
+                    st.warning("⚠️ Guardado local OK · GitHub no disponible (revisa GITHUB_TOKEN en Secrets)")
                 st.rerun()
             if os.path.exists(DATA_PATH):
                 import time as _time
@@ -1781,14 +1847,24 @@ st.markdown(
 )
 
 with tab1:
-    # ── Aviso modo demo ───────────────────────────────────────────────────────
+    # ── Aviso modo demo / mantenimiento ──────────────────────────────────────
     if _modo_demo:
-        st.warning(
-            "⚠️ **Datos de demostración** — No se encontró el Excel con los datos reales. "
-            "Inicia sesión como administrador (menú ≡ arriba a la derecha) y sube el archivo "
-            "`datos_incentivos.xlsx` para ver los datos reales. "
-            "**Los datos reales se pierden al reiniciar Streamlit Cloud; sube el archivo tras cada reinicio.**"
-        )
+        from datetime import timezone as _tz, timedelta as _td
+        _hora_peru = __import__("datetime").datetime.now(_tz(_td(hours=-5))).hour
+        _en_mantenimiento = 0 <= _hora_peru < 7
+        if _en_mantenimiento:
+            st.info(
+                "🔧 **Ventana de mantenimiento (00:00–07:00 hora Perú).**  "
+                "Los datos reales estarán disponibles automáticamente a las 07:01 — "
+                "el sistema los recupera desde GitHub sin intervención manual."
+            )
+        else:
+            st.warning(
+                "⚠️ **Datos de demostración** — El servidor se reinició y no se encontró el Excel. "
+                "Esto no debería pasar fuera del horario 00:00–07:00. "
+                "Inicia sesión como administrador (menú ≡) y sube el archivo para restaurar. "
+                "Una vez subido, el app lo guardará en GitHub y **nunca más necesitarás subirlo de nuevo tras un reinicio.**"
+            )
     # ── Header estilo Power BI ────────────────────────────────────────────────
     st.markdown("""
     <div style="background:linear-gradient(135deg,#0A2A5E 0%,#0B5ED7 100%);
