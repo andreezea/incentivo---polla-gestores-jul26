@@ -1275,11 +1275,21 @@ st.sidebar.markdown(
 # ── es_admin desde session_state ─────────────────────────────────────────────
 es_admin = st.session_state.get("es_admin", False)
 
+# ── Persistencia intra-sesión: si el Excel está en session_state pero no en disco ──
+if not os.path.exists(DATA_PATH) and "excel_bytes_cache" in st.session_state:
+    try:
+        with open(DATA_PATH, "wb") as _f_cache:
+            _f_cache.write(st.session_state["excel_bytes_cache"])
+    except Exception:
+        pass
+
+_modo_demo = False
 if os.path.exists(DATA_PATH):
     df_raw, df_diario, df_sem_ant = cargar_excel(DATA_PATH)
 else:
     df_raw, df_diario = datos_demo()
     df_sem_ant = pd.DataFrame()
+    _modo_demo = True
 
 if not df_diario.empty:
     try:
@@ -1292,6 +1302,20 @@ if not df_diario.empty:
             "no nombres de producto ni de mes."
         )
         df_diario = pd.DataFrame()
+
+# ── Mapa DNI desde columna "DNI" del Excel Mensual (prioridad sobre GitHub JSON) ──
+# Si la hoja Mensual tiene columna DNI, se usa como fuente primaria.
+# El admin solo necesita llenar esa columna en el Excel — no necesita el panel GitHub.
+_mapa_dni_excel = {}
+if not df_raw.empty and "DNI" in df_raw.columns:
+    _seen_d = set()
+    for _, _r in df_raw.iterrows():
+        _gest = str(_r.get("Gestor","")).strip()
+        _dept = str(_r.get("Departamento","")).strip()
+        _dni  = str(_r.get("DNI","")).strip()
+        if _gest and _dni and _dni not in ("nan","None","") and _dni not in _seen_d:
+            _mapa_dni_excel[_dni] = {"gestor": _gest, "departamento": _dept}
+            _seen_d.add(_dni)
 
 # ── Filtrar filas instrucción / cabeceras coladas en la hoja Diario ───────────
 # El template tiene textos de ayuda en el área de datos (ej: "Fecha: DD/MM/YYYY…").
@@ -1564,6 +1588,7 @@ with _col_menu:
             _fu = st.file_uploader("Archivo .xlsx", type=["xlsx"], key="fu_hamburger")
             if _fu is not None:
                 _fu_bytes = _fu.read()
+                st.session_state["excel_bytes_cache"] = _fu_bytes   # persiste en sesión
                 with open(DATA_PATH, "wb") as _f:
                     _f.write(_fu_bytes)
                 st.success("✅ Datos guardados — recargando…")
@@ -1573,6 +1598,8 @@ with _col_menu:
                 _mod = os.path.getmtime(DATA_PATH)
                 _fecha_mod = date.fromtimestamp(_mod).strftime("%d/%m/%Y %H:%M")
                 st.caption(f"📂 Cargado el {_fecha_mod}")
+                if _mapa_dni_excel:
+                    st.success(f"✅ {len(_mapa_dni_excel)} DNIs leídos desde columna Excel")
 
             st.markdown("---")
             st.markdown("##### 👥 Gestores · DNI")
@@ -1754,6 +1781,14 @@ st.markdown(
 )
 
 with tab1:
+    # ── Aviso modo demo ───────────────────────────────────────────────────────
+    if _modo_demo:
+        st.warning(
+            "⚠️ **Datos de demostración** — No se encontró el Excel con los datos reales. "
+            "Inicia sesión como administrador (menú ≡ arriba a la derecha) y sube el archivo "
+            "`datos_incentivos.xlsx` para ver los datos reales. "
+            "**Los datos reales se pierden al reiniciar Streamlit Cloud; sube el archivo tras cada reinicio.**"
+        )
     # ── Header estilo Power BI ────────────────────────────────────────────────
     st.markdown("""
     <div style="background:linear-gradient(135deg,#0A2A5E 0%,#0B5ED7 100%);
@@ -2291,7 +2326,8 @@ with tab4:
     </div>""", unsafe_allow_html=True)
 
     # ── Lookup por DNI ────────────────────────────────────────────────────────
-    mapa_dni_tab4 = cargar_dni_map()
+    # Excel DNIs tienen prioridad; GitHub JSON sirve como fallback
+    mapa_dni_tab4 = {**cargar_dni_map(), **_mapa_dni_excel}
     subheader("🔑 Identificación del Gestor")
     dni_input = st.text_input("📋 Ingresa tu DNI", max_chars=15, key="dni_registro_tab4")
     gestor_activo = ""
