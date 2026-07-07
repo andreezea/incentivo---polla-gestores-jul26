@@ -1965,6 +1965,10 @@ with tab1:
     # ── Resumen por Región (solo visible cuando se muestra "Todas") ───────────
     if region_sel == "Todas":
         subheader("🌎 Comparativo por Región")
+        import calendar as _cal_rg2
+        _hoy_rg2  = date.today()
+        _dia_rg2  = max(_hoy_rg2.day, 1)
+        _nmes_rg2 = _cal_rg2.monthrange(_hoy_rg2.year, _hoy_rg2.month)[1]
         _col_or, _col_ce = st.columns(2)
         for _col, _region in [(_col_or, "Oriente"), (_col_ce, "Centro")]:
             with _col:
@@ -1975,36 +1979,44 @@ with tab1:
                 _pts     = int(_df_r["Total_Puntos"].sum())
                 _gest    = _df_r["Gestor"].nunique()
                 _cumpl   = round(_df_r["Cumplimiento_%"].mean(), 1) if not _df_r.empty else 0
+                _proy_r  = round(_ventas * _nmes_rg2 / _dia_rg2 * 100 / _cuota) if _cuota > 0 else 0
+                _sem_r   = _semaforo_emoji(_proy_r)
                 _color_r = "#0B5ED7" if _region == "Oriente" else "#198754"
                 st.markdown(f"""
                 <div style="background:{_color_r}; border-radius:12px; padding:18px 20px;
                             box-shadow:0 4px 14px rgba(0,0,0,0.20); margin-bottom:10px;">
                     <div style="color:#FFD97A; font-size:17px; font-weight:800;
                                 margin-bottom:10px;">🌎 Región {_region}</div>
-                    <div style="display:flex; gap:12px; flex-wrap:wrap;">
-                        <div style="flex:1; min-width:80px; background:rgba(255,255,255,0.12);
-                                    border-radius:8px; padding:10px 12px; text-align:center;">
+                    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                        <div style="flex:1; min-width:65px; background:rgba(255,255,255,0.12);
+                                    border-radius:8px; padding:10px 10px; text-align:center;">
                             <div style="color:rgba(255,255,255,0.75); font-size:10px;
                                         font-weight:700; text-transform:uppercase;">Gestores</div>
-                            <div style="color:#fff; font-size:22px; font-weight:800;">{_gest}</div>
+                            <div style="color:#fff; font-size:20px; font-weight:800;">{_gest}</div>
                         </div>
-                        <div style="flex:1; min-width:80px; background:rgba(255,255,255,0.12);
-                                    border-radius:8px; padding:10px 12px; text-align:center;">
+                        <div style="flex:1; min-width:65px; background:rgba(255,255,255,0.12);
+                                    border-radius:8px; padding:10px 10px; text-align:center;">
                             <div style="color:rgba(255,255,255,0.75); font-size:10px;
                                         font-weight:700; text-transform:uppercase;">Cumpl.%</div>
-                            <div style="color:#FFD97A; font-size:22px; font-weight:800;">{_cumpl}%</div>
+                            <div style="color:#FFD97A; font-size:20px; font-weight:800;">{_cumpl}%</div>
                         </div>
-                        <div style="flex:1; min-width:80px; background:rgba(255,255,255,0.12);
-                                    border-radius:8px; padding:10px 12px; text-align:center;">
+                        <div style="flex:1; min-width:65px; background:rgba(255,255,255,0.12);
+                                    border-radius:8px; padding:10px 10px; text-align:center;">
                             <div style="color:rgba(255,255,255,0.75); font-size:10px;
                                         font-weight:700; text-transform:uppercase;">Ventas</div>
-                            <div style="color:#fff; font-size:22px; font-weight:800;">{_ventas:,}</div>
+                            <div style="color:#fff; font-size:20px; font-weight:800;">{_ventas:,}</div>
                         </div>
-                        <div style="flex:1; min-width:80px; background:rgba(255,255,255,0.12);
-                                    border-radius:8px; padding:10px 12px; text-align:center;">
+                        <div style="flex:1; min-width:65px; background:rgba(255,255,255,0.12);
+                                    border-radius:8px; padding:10px 10px; text-align:center;">
+                            <div style="color:rgba(255,255,255,0.75); font-size:10px;
+                                        font-weight:700; text-transform:uppercase;">Proy%</div>
+                            <div style="color:#fff; font-size:18px; font-weight:800;">{_sem_r} {_proy_r}%</div>
+                        </div>
+                        <div style="flex:1; min-width:65px; background:rgba(255,255,255,0.12);
+                                    border-radius:8px; padding:10px 10px; text-align:center;">
                             <div style="color:rgba(255,255,255,0.75); font-size:10px;
                                         font-weight:700; text-transform:uppercase;">Puntos</div>
-                            <div style="color:#fff; font-size:22px; font-weight:800;">{_pts:,}</div>
+                            <div style="color:#fff; font-size:20px; font-weight:800;">{_pts:,}</div>
                         </div>
                     </div>
                     <div style="margin-top:10px; color:rgba(255,255,255,0.65); font-size:11px;">
@@ -2032,40 +2044,90 @@ with tab1:
 
     st.markdown("<div style='margin-top:20px'></div>", unsafe_allow_html=True)
 
-    # ── Tabla de Puntos por Gestor (visible, sin expander) ───────────────────
-    subheader("🎯 Puntos por Gestor")
-    _rank_pts = rank[["Gestor","Departamento","Cuota","Venta","Cumplimiento_%",
-                       "Puntos_Base","Puntos_Crec","PD_Diario","PD_Extra",
-                       "PD_Semanal","PD_Mensual","PD_MesAnt","PD_UR",
-                       "Puntos_Producto","Total_Puntos","Semaforo"]].copy()
-    _rank_pts.insert(0, "Puesto", range(1, len(_rank_pts)+1))
-    _rank_pts = _rank_pts.rename(columns={
-        "Cuota":           "Meta",
-        "Venta":           "Ventas",
-        "Cumplimiento_%":  "Cumpl%",
-        "Puntos_Base":     "P.Base",
-        "Puntos_Crec":     "P.Crec",
-        "PD_Diario":       "P.Diario",
-        "PD_Extra":        "P.Extra",
-        "PD_Semanal":      "P.Semanal",
-        "PD_Mensual":      "P.Mensual",
-        "PD_MesAnt":       "P.MesAnt",
-        "PD_UR":           "P.UR",
-        "Puntos_Producto": "Motor",
-        "Total_Puntos":    "TOTAL PTS",
-        "Semaforo":        "Estado",
-    })
-    st.dataframe(
-        _rank_pts,
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "TOTAL PTS": st.column_config.NumberColumn("TOTAL PTS", format="%d"),
-            "Cumpl%":    st.column_config.NumberColumn("Cumpl%",    format="%.1f%%"),
-            "Meta":      st.column_config.NumberColumn("Meta",      format="%d"),
-            "Ventas":    st.column_config.NumberColumn("Ventas",    format="%d"),
-        }
+    # ── Top 10 Gestores — desglose de puntos por regla ─────────────────────────
+    subheader("🎯 Top 10 — Puntos por Gestor")
+    _top10 = rank.head(10).copy()
+
+    # Stacked bar chart: desglose visual por regla
+    _reglas_def = [
+        ("Días cumplidos",  "PD_Diario",  "#2196F3"),
+        ("Extra unidades",  "PD_Extra",   "#4CAF50"),
+        ("Semana cumplida", "PD_Semanal", "#FF9800"),
+        ("Mes cumplido",    "PD_Mensual", "#9C27B0"),
+        ("Supera mes ant.", "PD_MesAnt",  "#E91E63"),
+        ("UR Prepago",      "PD_UR",      "#009688"),
+    ]
+    _fig_top = go.Figure()
+    for _rn, _rc, _clr in _reglas_def:
+        if _rc in _top10.columns:
+            _v = _top10[_rc].fillna(0).astype(int)
+            _fig_top.add_trace(go.Bar(
+                name=_rn,
+                y=_top10["Gestor"],
+                x=_v,
+                orientation="h",
+                marker_color=_clr,
+                text=_v.apply(lambda v: str(v) if v > 0 else ""),
+                textposition="inside",
+                textfont=dict(color="white", size=10),
+            ))
+    _fig_top.update_layout(
+        barmode="stack",
+        plot_bgcolor="white", paper_bgcolor="white",
+        xaxis=dict(title="Puntos acumulados", gridcolor="#EEF2F7"),
+        yaxis=dict(title="", autorange="reversed"),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0, font=dict(size=11)),
+        margin=dict(t=50, b=10, l=10, r=10),
+        height=max(320, len(_top10) * 38),
     )
+    st.plotly_chart(_fig_top, use_container_width=True)
+
+    # Tabla de resumen por regla
+    _cols_r = ["Gestor","Departamento"] + [c for _,c,_ in _reglas_def if c in _top10.columns] + ["Total_Puntos"]
+    _tbl10  = _top10[_cols_r].copy()
+    _tbl10.insert(0, "#", range(1, len(_tbl10)+1))
+    _tbl10  = _tbl10.rename(columns={c: n for n,c,_ in _reglas_def})
+    _tbl10  = _tbl10.rename(columns={"Total_Puntos": "TOTAL PTS"})
+    st.dataframe(_tbl10, hide_index=True, use_container_width=True,
+                 column_config={"TOTAL PTS": st.column_config.NumberColumn(format="%d")})
+
+    # Descarga Excel con todos los gestores
+    def _gen_excel_puntos():
+        import io as _io2
+        _buf2 = _io2.BytesIO()
+        try:
+            _df_all2 = df.groupby(["Gestor","Departamento"]).agg(**AGG_COLS).reset_index()
+            _df_all2["Cumplimiento_%"] = (_df_all2["Venta"] / _df_all2["Cuota"] * 100).round(1)
+            _df_all2 = _df_all2.sort_values("Total_Puntos", ascending=False).reset_index(drop=True)
+            _df_all2.insert(0, "Puesto", range(1, len(_df_all2)+1))
+            _df_all2 = _df_all2.rename(columns={
+                "Venta":"Ventas","Cuota":"Meta","Cumplimiento_%":"Cumpl%",
+                "PD_Diario":"Días Cumplidos","PD_Extra":"Extra Unidades",
+                "PD_Semanal":"Semanas Cumplidas","PD_Mensual":"Mes Cumplido",
+                "PD_MesAnt":"Supera Mes Ant.","PD_UR":"UR Prepago",
+                "Puntos_Producto":"Motor Pts","Total_Puntos":"TOTAL PTS",
+            })
+            with pd.ExcelWriter(_buf2, engine="openpyxl") as _wr2:
+                _df_all2.to_excel(_wr2, sheet_name="Puntos Gestores", index=False)
+                if not df_diario.empty:
+                    _dd = df_diario.copy()
+                    _dd["Fecha"] = pd.to_datetime(_dd["Fecha"]).dt.strftime("%Y-%m-%d")
+                    _dd.to_excel(_wr2, sheet_name="Detalle Diario", index=False)
+        except Exception as _e2:
+            pass
+        _buf2.seek(0)
+        return _buf2.read()
+
+    _col_dl, _ = st.columns([2,1])
+    with _col_dl:
+        st.download_button(
+            label="📥 Descargar puntos de todos los gestores (Excel)",
+            data=_gen_excel_puntos(),
+            file_name=f"Puntos_Fanero_{date.today().strftime('%Y%m%d')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+            key="btn_dl_puntos_tab1",
+        )
     st.markdown("<div style='margin-top:20px'></div>", unsafe_allow_html=True)
 
     # ── Ranking + tabla (2 columnas) ─────────────────────────────────────────
