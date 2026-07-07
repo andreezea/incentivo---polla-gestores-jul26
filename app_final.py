@@ -517,13 +517,19 @@ def _cumpl_color(v):
     else:
         return "#DC3545"   # rojo
 
-def _pivot_to_html(pv, index_col, prods):
-    """Renderiza un DataFrame MultiIndex como tabla HTML con estilo gerencial."""
-    import calendar as _cal_piv
-    _hoy_piv  = date.today()
-    _dia_piv  = max(_hoy_piv.day, 1)
-    _nmes_piv = _cal_piv.monthrange(_hoy_piv.year, _hoy_piv.month)[1]
+def _semaforo_emoji(pct):
+    """Emoji semáforo: 🟢 ≥100%, 🟡 ≥80%, 🔴 <80%."""
+    try:
+        p = float(pct)
+    except Exception:
+        return "⚪"
+    if p >= 100: return "🟢"
+    elif p >= 80: return "🟡"
+    else:        return "🔴"
 
+def _pivot_to_html(pv, index_col, prods):
+    """Renderiza un DataFrame MultiIndex como tabla HTML con estilo gerencial.
+    Espera que (p, 'Proy%') ya esté pre-calculado en pv."""
     CELL = (
         "padding:7px 12px;border:1px solid #BFCDE0;"
         "color:#0A2A5E;font-size:12.5px;text-align:right;"
@@ -531,8 +537,8 @@ def _pivot_to_html(pv, index_col, prods):
     )
     PROY_CELL = (
         "padding:7px 12px;border:1px solid #BFCDE0;"
-        "color:#6F42C1;font-size:12.5px;text-align:right;"
-        "background:#F5F7FB;font-style:italic;"
+        "font-size:13px;text-align:center;"
+        "background:#F5F7FB;"
     )
     HEAD_TOP = (
         "padding:7px 12px;background:#0A2A5E;color:#FFFFFF;"
@@ -575,20 +581,20 @@ def _pivot_to_html(pv, index_col, prods):
             cuota = pv.loc[idx, (p,"Cuota")]
             venta = pv.loc[idx, (p,"Ventas")]
             cumpl = pv.loc[idx, (p,"Cumpl%")]
-            color = _cumpl_color(cumpl)
+            # Proy% pre-calculado con datos mensuales
+            proy_raw = pv.loc[idx, (p,"Proy%")] if (p,"Proy%") in pv.columns else 0
             try:
                 cu_n = int(cuota) if pd.notna(cuota) else 0
                 ve_n = int(venta)  if pd.notna(venta)  else 0
+                cm_n = int(cumpl)  if pd.notna(cumpl)  else 0
+                pr_n = int(proy_raw) if pd.notna(proy_raw) else 0
             except Exception:
-                cu_n, ve_n = 0, 0
-            proy_pct = round(ve_n * _nmes_piv / _dia_piv * 100 / cu_n) if cu_n > 0 else 0
+                cu_n, ve_n, cm_n, pr_n = 0, 0, 0, 0
+            sem = _semaforo_emoji(pr_n)
             cols_td += f'<td style="{CELL}">{cu_n if pd.notna(cuota) else "-"}</td>'
             cols_td += f'<td style="{CELL}">{ve_n if pd.notna(venta) else "-"}</td>'
-            cols_td += (
-                f'<td style="{CELL}color:{color};font-weight:800;">' +
-                f'{int(cumpl) if pd.notna(cumpl) else "-"}%</td>'
-            )
-            cols_td += f'<td style="{PROY_CELL}">{proy_pct}%</td>'
+            cols_td += f'<td style="{CELL}">{cm_n if pd.notna(cumpl) else "-"}%</td>'
+            cols_td += f'<td style="{PROY_CELL}">{sem} {pr_n}%</td>'
         rows_html.append(f"<tr>{cols_td}</tr>")
 
     table = (
@@ -665,16 +671,23 @@ def _build_tabla_regional(df_src, col_idx, label_idx, tabla_id):
         t_ventas = sum(int(pv.loc[ix, (p, "Ventas")]) if (p, "Ventas") in pv.columns else 0 for p in avail)
         t_cumpl  = round(t_ventas / t_cuota * 100) if t_cuota > 0 else 0
         t_proy   = round(t_ventas * _nmes_reg / _dia_reg * 100 / t_cuota) if t_cuota > 0 else 0
+        t_sem    = _semaforo_emoji(t_proy)
         if modo == "region":
-            t_sty  = REGC; t_clr  = "#FFD97A"; t_pclr = "#FFD97A"
+            t_sty = REGC
+            cumpl_sty = f'{t_sty}font-weight:900;'
+            proy_sty  = f'{t_sty}font-size:14px;text-align:center;'
         elif modo == "total":
-            t_sty  = TOTC; t_clr  = "#C9982A"; t_pclr = "#C9982A"
+            t_sty = TOTC
+            cumpl_sty = f'{t_sty}font-weight:900;'
+            proy_sty  = f'{t_sty}font-size:14px;text-align:center;'
         else:
-            t_sty  = TCELL; t_clr  = _cumpl_color(t_cumpl); t_pclr = "#6F42C1"
+            t_sty = TCELL
+            cumpl_sty = t_sty
+            proy_sty  = f'{t_sty}font-size:14px;text-align:center;'
         out += f'<td style="{t_sty}">{t_cuota}</td>'
         out += f'<td style="{t_sty}font-weight:900;">{t_ventas}</td>'
-        out += f'<td style="{t_sty}color:{t_clr};font-weight:900;">{t_cumpl}%</td>'
-        out += f'<td style="{t_sty}color:{t_pclr};font-style:italic;font-weight:800;">{t_proy}%</td>'
+        out += f'<td style="{cumpl_sty}">{t_cumpl}%</td>'
+        out += f'<td style="{proy_sty}">{t_sem} {t_proy}%</td>'
         # ── Columnas por producto ────────────────────────────────────────────
         for p in avail:
             cu = pv.loc[ix, (p, "Cuota")]  if (p, "Cuota")  in pv.columns else 0
@@ -687,12 +700,11 @@ def _build_tabla_regional(df_src, col_idx, label_idx, tabla_id):
             try:   ve_n = int(ve) if pd.notna(ve) else 0
             except: ve_n = 0
             proy_pct = round(ve_n * _nmes_reg / _dia_reg * 100 / cu_n) if cu_n > 0 else 0
-            clr  = "#FFD97A" if modo == "region" else ("#C9982A" if modo == "total" else _cumpl_color(cm_n))
-            pclr = "#FFD97A" if modo == "region" else ("#C9982A" if modo == "total" else "#6F42C1")
+            sem_p    = _semaforo_emoji(proy_pct)
             out += f'<td style="{cel}">{cu_n if pd.notna(cu) else "-"}</td>'
             out += f'<td style="{cel}">{ve_n if pd.notna(ve) else "-"}</td>'
-            out += f'<td style="{cel}color:{clr};font-weight:800;">{int(cm_n) if pd.notna(cm) else "-"}%</td>'
-            out += f'<td style="{cel}color:{pclr};font-style:italic;font-weight:700;">{proy_pct}%</td>'
+            out += f'<td style="{cel}">{int(cm_n) if pd.notna(cm) else "-"}%</td>'
+            out += f'<td style="{cel}font-size:14px;text-align:center;">{sem_p} {proy_pct}%</td>'
         return out
 
     tbody = "<tbody>"
@@ -2290,13 +2302,37 @@ with tab3:
     p_v = grp_h.pivot(index="Gestor", columns="Producto", values="Venta").reindex(columns=prods_h)
     p_k = (p_v / p_c * 100).round(0)
 
-    tuples_h = [(p, m) for p in prods_h for m in ["Cuota","Ventas","Cumpl%"]]
+    tuples_h = [(p, m) for p in prods_h for m in ["Cuota","Ventas","Cumpl%","Proy%"]]
     pivot_h  = pd.DataFrame(index=p_c.index, columns=pd.MultiIndex.from_tuples(tuples_h))
     pivot_h.index.name = "Gestor"
     for p in prods_h:
         pivot_h[(p,"Cuota")]  = _safe_int(p_c[p])
         pivot_h[(p,"Ventas")] = _safe_int(p_v[p])
         pivot_h[(p,"Cumpl%")] = _safe_int(p_k[p])
+
+    # Proy% con datos mensuales reales (Cuota y Venta acumulada de df_raw)
+    import calendar as _cal3h
+    _hoy3h   = date.today()
+    _dia3h   = max(_hoy3h.day, 1)
+    _nmes3h  = _cal3h.monthrange(_hoy3h.year, _hoy3h.month)[1]
+    if not df_raw.empty and "Cuota" in df_raw.columns and "Venta" in df_raw.columns:
+        _mens_proy = (df_raw[df_raw["Cuota"] > 0]
+                      .groupby(["Gestor","Producto"])
+                      .agg(_Cu=("Cuota","first"), _Ve=("Venta","sum"))
+                      .reset_index())
+        for _pp in prods_h:
+            _mp = _mens_proy[_mens_proy["Producto"] == _pp].set_index("Gestor")
+            for _gg in pivot_h.index:
+                if _gg in _mp.index:
+                    _cu3 = float(_mp.loc[_gg, "_Cu"])
+                    _ve3 = float(_mp.loc[_gg, "_Ve"])
+                    _pv3 = round(_ve3 * _nmes3h / _dia3h * 100 / _cu3) if _cu3 > 0 else 0
+                else:
+                    _pv3 = 0
+                pivot_h.loc[_gg, (_pp, "Proy%")] = _pv3
+    else:
+        for _pp in prods_h:
+            pivot_h[(_pp, "Proy%")] = 0
 
     st.markdown(_pivot_to_html(pivot_h, "Gestor", prods_h), unsafe_allow_html=True)
     st.markdown("<div style='margin-top:16px'></div>", unsafe_allow_html=True)
