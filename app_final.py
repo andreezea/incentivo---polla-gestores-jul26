@@ -519,10 +519,20 @@ def _cumpl_color(v):
 
 def _pivot_to_html(pv, index_col, prods):
     """Renderiza un DataFrame MultiIndex como tabla HTML con estilo gerencial."""
+    import calendar as _cal_piv
+    _hoy_piv  = date.today()
+    _dia_piv  = max(_hoy_piv.day, 1)
+    _nmes_piv = _cal_piv.monthrange(_hoy_piv.year, _hoy_piv.month)[1]
+
     CELL = (
         "padding:7px 12px;border:1px solid #BFCDE0;"
         "color:#0A2A5E;font-size:12.5px;text-align:right;"
         "background:#F5F7FB;"
+    )
+    PROY_CELL = (
+        "padding:7px 12px;border:1px solid #BFCDE0;"
+        "color:#6F42C1;font-size:12.5px;text-align:right;"
+        "background:#F5F7FB;font-style:italic;"
     )
     HEAD_TOP = (
         "padding:7px 12px;background:#0A2A5E;color:#FFFFFF;"
@@ -541,18 +551,18 @@ def _pivot_to_html(pv, index_col, prods):
     )
 
     rows_html = []
-    # Fila 1: productos (span 3 cada uno) + celda índice
+    # Fila 1: productos (span 4 cada uno) + celda índice
     header1 = f'<th style="{HEAD_TOP};text-align:left;" rowspan="2">{index_col}</th>'
     for p in prods:
         if p in [c[0] for c in pv.columns]:
-            header1 += f'<th style="{HEAD_TOP}" colspan="3">{p}</th>'
+            header1 += f'<th style="{HEAD_TOP}" colspan="4">{p}</th>'
     rows_html.append(f"<tr>{header1}</tr>")
 
     # Fila 2: sub-columnas
     header2 = ""
     for p in prods:
         if p in [c[0] for c in pv.columns]:
-            for m in ["Cuota","Ventas","Cumpl%"]:
+            for m in ["Cuota", "Ventas", "Cumpl%", "Proy%"]:
                 header2 += f'<th style="{HEAD_SUB}">{m}</th>'
     rows_html.append(f"<tr>{header2}</tr>")
 
@@ -566,12 +576,19 @@ def _pivot_to_html(pv, index_col, prods):
             venta = pv.loc[idx, (p,"Ventas")]
             cumpl = pv.loc[idx, (p,"Cumpl%")]
             color = _cumpl_color(cumpl)
-            cols_td += f'<td style="{CELL}">{int(cuota) if pd.notna(cuota) else "-"}</td>'
-            cols_td += f'<td style="{CELL}">{int(venta) if pd.notna(venta) else "-"}</td>'
+            try:
+                cu_n = int(cuota) if pd.notna(cuota) else 0
+                ve_n = int(venta)  if pd.notna(venta)  else 0
+            except Exception:
+                cu_n, ve_n = 0, 0
+            proy_pct = round(ve_n * _nmes_piv / _dia_piv * 100 / cu_n) if cu_n > 0 else 0
+            cols_td += f'<td style="{CELL}">{cu_n if pd.notna(cuota) else "-"}</td>'
+            cols_td += f'<td style="{CELL}">{ve_n if pd.notna(venta) else "-"}</td>'
             cols_td += (
                 f'<td style="{CELL}color:{color};font-weight:800;">' +
                 f'{int(cumpl) if pd.notna(cumpl) else "-"}%</td>'
             )
+            cols_td += f'<td style="{PROY_CELL}">{proy_pct}%</td>'
         rows_html.append(f"<tr>{cols_td}</tr>")
 
     table = (
@@ -623,15 +640,21 @@ def _build_tabla_regional(df_src, col_idx, label_idx, tabla_id):
     THEAD2 = "padding:5px 10px;background:#9B5200;color:#FFD97A;font-size:10.5px;font-weight:700;text-align:center;border:1px solid #C9982A;"
     TCELL  = "padding:7px 11px;border:2px solid #C9982A;font-size:12.5px;text-align:right;background:#FFFBF0;font-weight:700;"
 
+    # Proyección mensual
+    import calendar as _cal_reg
+    _hoy_reg  = date.today()
+    _dia_reg  = max(_hoy_reg.day, 1)
+    _nmes_reg = _cal_reg.monthrange(_hoy_reg.year, _hoy_reg.month)[1]
+
     # Cabecera — columna TOTAL primero, luego productos
     h1 = f'<th style="{HEAD1};text-align:left" rowspan="2">{label_idx.upper()}</th>'
-    h1 += f'<th style="{THEAD1}" colspan="3">📊 TOTAL</th>'
+    h1 += f'<th style="{THEAD1}" colspan="4">📊 TOTAL</th>'
     h2 = ""
-    for m in ["Cuota", "Ventas", "Cumpl%"]:
+    for m in ["Cuota", "Ventas", "Cumpl%", "Proy%"]:
         h2 += f'<th style="{THEAD2}">{m}</th>'
     for p in avail:
-        h1 += f'<th style="{HEAD1}" colspan="3">{p}</th>'
-        for m in ["Cuota", "Ventas", "Cumpl%"]:
+        h1 += f'<th style="{HEAD1}" colspan="4">{p}</th>'
+        for m in ["Cuota", "Ventas", "Cumpl%", "Proy%"]:
             h2 += f'<th style="{HEAD2}">{m}</th>'
     thead = f"<thead><tr>{h1}</tr><tr>{h2}</tr></thead>"
 
@@ -641,15 +664,17 @@ def _build_tabla_regional(df_src, col_idx, label_idx, tabla_id):
         t_cuota  = sum(int(pv.loc[ix, (p, "Cuota")])  if (p, "Cuota")  in pv.columns else 0 for p in avail)
         t_ventas = sum(int(pv.loc[ix, (p, "Ventas")]) if (p, "Ventas") in pv.columns else 0 for p in avail)
         t_cumpl  = round(t_ventas / t_cuota * 100) if t_cuota > 0 else 0
+        t_proy   = round(t_ventas * _nmes_reg / _dia_reg * 100 / t_cuota) if t_cuota > 0 else 0
         if modo == "region":
-            t_sty = REGC; t_clr = "#FFD97A"
+            t_sty  = REGC; t_clr  = "#FFD97A"; t_pclr = "#FFD97A"
         elif modo == "total":
-            t_sty = TOTC; t_clr = "#C9982A"
+            t_sty  = TOTC; t_clr  = "#C9982A"; t_pclr = "#C9982A"
         else:
-            t_sty = TCELL; t_clr = _cumpl_color(t_cumpl)
+            t_sty  = TCELL; t_clr  = _cumpl_color(t_cumpl); t_pclr = "#6F42C1"
         out += f'<td style="{t_sty}">{t_cuota}</td>'
         out += f'<td style="{t_sty}font-weight:900;">{t_ventas}</td>'
         out += f'<td style="{t_sty}color:{t_clr};font-weight:900;">{t_cumpl}%</td>'
+        out += f'<td style="{t_sty}color:{t_pclr};font-style:italic;font-weight:800;">{t_proy}%</td>'
         # ── Columnas por producto ────────────────────────────────────────────
         for p in avail:
             cu = pv.loc[ix, (p, "Cuota")]  if (p, "Cuota")  in pv.columns else 0
@@ -657,10 +682,17 @@ def _build_tabla_regional(df_src, col_idx, label_idx, tabla_id):
             cm = pv.loc[ix, (p, "Cumpl%")] if (p, "Cumpl%") in pv.columns else 0
             try:   cm_n = float(str(cm).replace("%", ""))
             except: cm_n = 0
-            clr = "#FFD97A" if modo == "region" else ("#C9982A" if modo == "total" else _cumpl_color(cm_n))
-            out += f'<td style="{cel}">{int(cu) if pd.notna(cu) else "-"}</td>'
-            out += f'<td style="{cel}">{int(ve) if pd.notna(ve) else "-"}</td>'
+            try:   cu_n = int(cu) if pd.notna(cu) else 0
+            except: cu_n = 0
+            try:   ve_n = int(ve) if pd.notna(ve) else 0
+            except: ve_n = 0
+            proy_pct = round(ve_n * _nmes_reg / _dia_reg * 100 / cu_n) if cu_n > 0 else 0
+            clr  = "#FFD97A" if modo == "region" else ("#C9982A" if modo == "total" else _cumpl_color(cm_n))
+            pclr = "#FFD97A" if modo == "region" else ("#C9982A" if modo == "total" else "#6F42C1")
+            out += f'<td style="{cel}">{cu_n if pd.notna(cu) else "-"}</td>'
+            out += f'<td style="{cel}">{ve_n if pd.notna(ve) else "-"}</td>'
             out += f'<td style="{cel}color:{clr};font-weight:800;">{int(cm_n) if pd.notna(cm) else "-"}%</td>'
+            out += f'<td style="{cel}color:{pclr};font-style:italic;font-weight:700;">{proy_pct}%</td>'
         return out
 
     tbody = "<tbody>"
