@@ -2233,30 +2233,60 @@ with tab1:
     )
     st.plotly_chart(_fig_top, use_container_width=True)
 
-    # ── Tabla resumen Top 10 ─────────────────────────────────────────────────
+    # ── Tabla resumen Top 10 — HTML ──────────────────────────────────────────
     _fecha_hoy = date.today()
     _mes_str   = _fecha_hoy.strftime("%B %Y").capitalize()
     _dia_str   = _fecha_hoy.strftime("%d/%m")
-    st.markdown(
-        f"<div style='font-weight:700;font-size:14px;color:#0A2A5E;"
-        f"margin:8px 0 6px 0;'>📋 Puntos acumulados al {_dia_str} — {_mes_str}</div>",
-        unsafe_allow_html=True)
-    _cols_r = ["Gestor","Departamento"] + [c for _,c,_ in _reglas_def if c in _top10.columns] + ["Total_Puntos"]
-    _tbl10  = _top10[_cols_r].copy()
-    _tbl10.insert(0, "#", range(1, len(_tbl10)+1))
-    _rename_map = {c: n for n,c,_ in _reglas_def}
-    _rename_map["Total_Puntos"] = "TOTAL PTS"
-    _tbl10 = _tbl10.rename(columns=_rename_map)
-    _col_cfg = {
-        "Días cumplidos":  st.column_config.NumberColumn(format="%d pts"),
-        "Extra unidades":  st.column_config.NumberColumn(format="%d pts"),
-        "Semana cumplida": st.column_config.NumberColumn(format="%d pts"),
-        "Mes cumplido":    st.column_config.NumberColumn(format="%d pts"),
-        "Supera mes ant.": st.column_config.NumberColumn(format="%d pts"),
-        "UR Prepago":      st.column_config.NumberColumn(format="%d pts"),
-        "TOTAL PTS":       st.column_config.NumberColumn(format="%d"),
-    }
-    st.dataframe(_tbl10, hide_index=True, use_container_width=True, column_config=_col_cfg)
+    # Colores por criterio (coinciden con el stacked bar)
+    _crit_cols = [
+        ("Días cumplidos",  "PD_Diario",  "#2196F3"),
+        ("Extra unid.",     "PD_Extra",   "#4CAF50"),
+        ("Sem. cumplida",   "PD_Semanal", "#FF9800"),
+        ("Mes cumplido",    "PD_Mensual", "#9C27B0"),
+        ("Sup. mes ant.",   "PD_MesAnt",  "#E91E63"),
+        ("UR Prepago",      "PD_UR",      "#009688"),
+    ]
+    _TH  = "padding:7px 10px;font-size:11px;font-weight:700;text-align:center;white-space:nowrap;border-bottom:2px solid #C8D6E5;"
+    _TH2 = "padding:4px 8px;font-size:11px;font-weight:700;text-align:center;white-space:nowrap;border-bottom:2px solid #C8D6E5;"
+    _TD  = "padding:6px 10px;font-size:12px;text-align:center;border-bottom:1px solid #E8EFF5;"
+    _TDL = "padding:6px 10px;font-size:12px;text-align:left;border-bottom:1px solid #E8EFF5;white-space:nowrap;"
+    # Cabecera
+    _hdr = (
+        f"<tr style='background:#0A2A5E;color:white;'>"
+        f"<th style='{_TH}'>#</th>"
+        f"<th style='{_TH};text-align:left;'>Gestor</th>"
+        f"<th style='{_TH}'>Departamento</th>"
+    )
+    for _cn, _cc, _clr in _crit_cols:
+        _hdr += f"<th style='{_TH2};background:{_clr}20;color:{_clr};border-left:3px solid {_clr};'>{_cn}</th>"
+    _hdr += f"<th style='{_TH};background:#0B5ED7;'>TOTAL</th></tr>"
+    # Filas
+    _rows_html = ""
+    for _ri, (_, _rr) in enumerate(_top10.iterrows(), 1):
+        _bg = "#F5F8FF" if _ri % 2 == 0 else "white"
+        _dep = str(_rr.get("Departamento","")).strip()
+        _r = (
+            f"<tr style='background:{_bg};'>"
+            f"<td style='{_TD};font-weight:700;color:#0A2A5E;'>{_ri}</td>"
+            f"<td style='{_TDL};font-weight:600;'>{_rr['Gestor']}</td>"
+            f"<td style='{_TD};'>{_dep}</td>"
+        )
+        for _cn, _cc, _clr in _crit_cols:
+            _v = int(_rr.get(_cc, 0) or 0)
+            _txt = f"<b>{_v}</b>" if _v > 0 else "<span style='color:#CCC;'>—</span>"
+            _r += f"<td style='{_TD};border-left:2px solid {_clr}30;'>{_txt}</td>"
+        _tot = int(_rr.get("Total_Puntos", 0) or 0)
+        _r += f"<td style='{_TD};font-weight:900;color:#0B5ED7;font-size:14px;'>{_tot}</td></tr>"
+        _rows_html += _r
+    _html_tbl = (
+        f"<div style='margin-top:8px;'>"
+        f"<div style='font-weight:700;font-size:13px;color:#0A2A5E;margin-bottom:8px;'>📋 Puntos acumulados al {_dia_str} — {_mes_str}</div>"
+        f"<div style='overflow-x:auto;'>"
+        f"<table style='width:100%;border-collapse:collapse;font-family:sans-serif;'>"
+        f"<thead>{_hdr}</thead><tbody>{_rows_html}</tbody>"
+        f"</table></div></div>"
+    )
+    st.markdown(_html_tbl, unsafe_allow_html=True)
 
     st.markdown("<div style='margin-top:20px'></div>", unsafe_allow_html=True)
 
