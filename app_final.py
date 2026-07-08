@@ -407,22 +407,44 @@ def procesar(df):
 # ============================================================================
 # NUEVO MOTOR — calcular_puntos_producto()
 # ============================================================================
-def calcular_puntos_producto(df_mensual: pd.DataFrame, df_diario: pd.DataFrame) -> pd.DataFrame:
+def calcular_puntos_producto(df_mensual: pd.DataFrame,
+                             df_diario: pd.DataFrame,
+                             df_sem_ant: pd.DataFrame = None) -> pd.DataFrame:
     """
     Calcula Puntos_Producto por Gestor × Producto.
 
     Reglas (nombres oficiales del criterio):
       1. Cumple cuota diaria  (PD_Diario)  : pts fijos por día con Venta_Dia >= CuotaDiaria
-      2. Supera cuota diaria  (PD_Extra)   : pts por unidad extra en días cumplidos
-      3. Semana >= 100% cuota (PD_Semanal) : 10 pts si Venta_Semana >= Cuota_Mensual/N_Semanas
-      4. Mes >= 100% cuota    (PD_Mensual) : 40 pts si Venta_Mes >= Cuota_Mensual
-      5. Semana > prom.mes ant(PD_MesAnt)  : 15 pts por semana donde Venta_Sem > VentaAnt/N_Semanas
-      6. UR Prepago           (PD_UR)      : 15 pts si Prepago >= 55% de su cuota mensual
+      2. Supera cuota diaria  (PD_Extra)   : pts fijos por día que supera (no por unidad)
+      3. Semana >= 100% cuota (PD_Semanal) : pts si Venta_Semana >= Cuota_Mensual/N_Semanas
+      4. Mes >= 100% cuota    (PD_Mensual) : pts si Venta_Mes >= Cuota_Mensual
+      5. Semana > semana mes ant(PD_MesAnt): pts por semana N > venta semana N de Semanal_MesAnt
+      6. UR Prepago           (PD_UR)      : pts si Prepago >= 55% de su cuota mensual
+
+    df_sem_ant: hoja Semanal_MesAnt con columnas Gestor, Producto, Semana, Venta_Semana
     """
     import calendar as _cal_pts
     _hoy_pts    = date.today()
     _n_dias_mes = _cal_pts.monthrange(_hoy_pts.year, _hoy_pts.month)[1]
     _n_semanas  = (_n_dias_mes - 1) // 7 + 1   # semanas del mes (grupos de 7 días)
+
+    # Construir lookup de Semanal_MesAnt: (gestor, producto, semana_num) → venta
+    _sem_ant_map = {}
+    if df_sem_ant is not None and not df_sem_ant.empty:
+        _sa = df_sem_ant.copy()
+        for col in ["Gestor","Producto"]:
+            if col in _sa.columns:
+                _sa[col] = _sa[col].astype(str).str.strip()
+        req = {"Gestor","Producto","Semana","Venta_Semana"}
+        if req.issubset(set(_sa.columns)):
+            for _, _r in _sa.iterrows():
+                try:
+                    _k = (str(_r["Gestor"]).strip(),
+                          str(_r["Producto"]).strip(),
+                          int(_r["Semana"]))
+                    _sem_ant_map[_k] = float(_r["Venta_Semana"] or 0)
+                except Exception:
+                    pass
 
     filas = []
 
@@ -441,8 +463,12 @@ def calcular_puntos_producto(df_mensual: pd.DataFrame, df_diario: pd.DataFrame) 
 
         # Cuota semanal = cuota mensual / nº semanas del mes
         cuota_sem    = cuota_m / _n_semanas if (_n_semanas > 0 and cuota_m > 0) else 0
-        # Promedio semanal del mes anterior (por producto)
+        # Promedio semanal del mes anterior (fallback si no hay Semanal_MesAnt)
         prom_sem_ant = venta_ant / _n_semanas if (_n_semanas > 0 and venta_ant > 0) else 0
+        # ¿Hay datos en Semanal_MesAnt para este gestor×producto?
+        _tiene_sem_ant = any(
+            (gestor, producto, s) in _sem_ant_map for s in range(1, _n_semanas + 1)
+        )
 
         pd_diario = pd_extra = pd_semanal = pd_mes_ant = 0
 
@@ -472,8 +498,16 @@ def calcular_puntos_producto(df_mensual: pd.DataFrame, df_diario: pd.DataFrame) 
                     semanas_ok = (ventas_sem >= cuota_sem).sum()
                     pd_semanal = int(semanas_ok) * pts_sem_u
 
-                # 5. Semana > promedio semanal del mes anterior
-                if prom_sem_ant > 0:
+                # 5. Semana N > Venta semana N mes anterior (Semanal_MesAnt)
+                #    Si no hay datos exactos por semana, usar promedio como fallback
+                if _tiene_sem_ant:
+                    # Comparación semana-a-semana exacta (semana 1 vs semana 1, etc.)
+                    for _s_num, _v_sem in ventas_sem.items():
+                        _ref = _sem_ant_map.get((gestor, producto, int(_s_num)), None)
+                        if _ref is not None and _v_sem > _ref:
+                            pd_mes_ant += pts_ant_u
+                elif prom_sem_ant > 0:
+                    # Fallback: comparar vs promedio si no hay datos exactos
                     semanas_vs_ant = (ventas_sem > prom_sem_ant).sum()
                     pd_mes_ant     = int(semanas_vs_ant) * pts_ant_u
 
@@ -693,10 +727,7 @@ def _build_tabla_regional(df_src, col_idx, label_idx, tabla_id):
 
     # Cabecera — columna TOTAL primero, luego productos
     h1 = f'<th style="{HEAD1};text-align:left" rowspan="2">{label_idx.upper()}</th>'
-    h1 += f'<th style="{THEAD1}" colspan="4">📊 TOTAL</th>'
     h2 = ""
-    for m in ["Cuota", "Ventas", "Cumpl%", "Proy%"]:
-        h2 += f'<th style="{THEAD2}">{m}</th>'
     for p in avail:
         h1 += f'<th style="{HEAD1}" colspan="4">{p}</th>'
         for m in ["Cuota", "Ventas", "Cumpl%", "Proy%"]:
@@ -705,28 +736,6 @@ def _build_tabla_regional(df_src, col_idx, label_idx, tabla_id):
 
     def _celdas(pv, ix, cel, modo):
         out = ""
-        # ── Columna TOTAL (suma de todos los productos) ──────────────────────
-        t_cuota  = sum(int(pv.loc[ix, (p, "Cuota")])  if (p, "Cuota")  in pv.columns else 0 for p in avail)
-        t_ventas = sum(int(pv.loc[ix, (p, "Ventas")]) if (p, "Ventas") in pv.columns else 0 for p in avail)
-        t_cumpl  = round(t_ventas / t_cuota * 100) if t_cuota > 0 else 0
-        t_proy   = round(t_ventas * _nmes_reg / _dia_reg * 100 / t_cuota) if t_cuota > 0 else 0
-        t_sem    = _semaforo_emoji(t_proy)
-        if modo == "region":
-            t_sty = REGC
-            cumpl_sty = f'{t_sty}font-weight:900;'
-            proy_sty  = f'{t_sty}font-size:14px;text-align:center;'
-        elif modo == "total":
-            t_sty = TOTC
-            cumpl_sty = f'{t_sty}font-weight:900;'
-            proy_sty  = f'{t_sty}font-size:14px;text-align:center;'
-        else:
-            t_sty = TCELL
-            cumpl_sty = t_sty
-            proy_sty  = f'{t_sty}font-size:14px;text-align:center;'
-        out += f'<td style="{t_sty}">{t_cuota}</td>'
-        out += f'<td style="{t_sty}font-weight:900;">{t_ventas}</td>'
-        out += f'<td style="{cumpl_sty}">{t_cumpl}%</td>'
-        out += f'<td style="{proy_sty}">{t_sem} {t_proy}%</td>'
         # ── Columnas por producto ────────────────────────────────────────────
         for p in avail:
             cu = pv.loc[ix, (p, "Cuota")]  if (p, "Cuota")  in pv.columns else 0
@@ -1616,7 +1625,7 @@ if _mapa_dni_base:
 df = procesar(df_raw)
 
 # ── Calcular nuevo motor por producto ────────────────────────────────────────
-df_pts_prod = calcular_puntos_producto(df_raw, df_diario)
+df_pts_prod = calcular_puntos_producto(df_raw, df_diario, df_sem_ant)
 
 # ── Merge y actualizar Total_Puntos ──────────────────────────────────────────
 COLS_PROD = ["PD_Diario","PD_Extra","PD_Semanal","PD_Mensual","PD_MesAnt","PD_UR","Puntos_Producto"]
@@ -2224,14 +2233,30 @@ with tab1:
     )
     st.plotly_chart(_fig_top, use_container_width=True)
 
-    # Tabla de resumen por regla
+    # ── Tabla resumen Top 10 ─────────────────────────────────────────────────
+    _fecha_hoy = date.today()
+    _mes_str   = _fecha_hoy.strftime("%B %Y").capitalize()
+    _dia_str   = _fecha_hoy.strftime("%d/%m")
+    st.markdown(
+        f"<div style='font-weight:700;font-size:14px;color:#0A2A5E;"
+        f"margin:8px 0 6px 0;'>📋 Puntos acumulados al {_dia_str} — {_mes_str}</div>",
+        unsafe_allow_html=True)
     _cols_r = ["Gestor","Departamento"] + [c for _,c,_ in _reglas_def if c in _top10.columns] + ["Total_Puntos"]
     _tbl10  = _top10[_cols_r].copy()
     _tbl10.insert(0, "#", range(1, len(_tbl10)+1))
-    _tbl10  = _tbl10.rename(columns={c: n for n,c,_ in _reglas_def})
-    _tbl10  = _tbl10.rename(columns={"Total_Puntos": "TOTAL PTS"})
-    st.dataframe(_tbl10, hide_index=True, use_container_width=True,
-                 column_config={"TOTAL PTS": st.column_config.NumberColumn(format="%d")})
+    _rename_map = {c: n for n,c,_ in _reglas_def}
+    _rename_map["Total_Puntos"] = "TOTAL PTS"
+    _tbl10 = _tbl10.rename(columns=_rename_map)
+    _col_cfg = {
+        "Días cumplidos":  st.column_config.NumberColumn(format="%d pts"),
+        "Extra unidades":  st.column_config.NumberColumn(format="%d pts"),
+        "Semana cumplida": st.column_config.NumberColumn(format="%d pts"),
+        "Mes cumplido":    st.column_config.NumberColumn(format="%d pts"),
+        "Supera mes ant.": st.column_config.NumberColumn(format="%d pts"),
+        "UR Prepago":      st.column_config.NumberColumn(format="%d pts"),
+        "TOTAL PTS":       st.column_config.NumberColumn(format="%d"),
+    }
+    st.dataframe(_tbl10, hide_index=True, use_container_width=True, column_config=_col_cfg)
 
     st.markdown("<div style='margin-top:20px'></div>", unsafe_allow_html=True)
 
