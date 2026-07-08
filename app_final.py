@@ -316,27 +316,50 @@ BANDAS_CRECIMIENTO = [
 # ============================================================================
 # PARÁMETROS — NUEVO MOTOR POR PRODUCTO
 # ============================================================================
-# 1. Puntos por cumplir cuota diaria (por producto, por día)
+# Puntos por criterio — valores definitivos por producto
+# ─────────────────────────────────────────────────────────────────────────────
+# 1. Cumple cuota diaria (pts fijos por día que cumple)
 PTS_CUOTA_DIARIA = {
-    "Prepago":  2,
-    "Porta Pre": 3,
-    "Postpago": 2,
-    "OSS":      3,
+    "Prepago":   2,
+    "Porta Pre": 5,
+    "Postpago":  2,
+    "OSS":       5,
 }
 
-# 5. Puntos por cada venta adicional sobre cuota diaria (solo si ya cumplió)
+# 2. Supera cuota diaria (pts fijos por día que SUPERA — no por unidad extra)
 PTS_EXTRA_DIARIA = {
-    "Prepago":  3,
-    "Porta Pre": 4,
-    "Postpago": 3,
-    "OSS":      4,
+    "Prepago":   3,
+    "Porta Pre": 6,
+    "Postpago":  3,
+    "OSS":       6,
 }
 
-PTS_CUOTA_SEMANAL = 10   # 2. Por semana cumplida
-PTS_CUOTA_MENSUAL = 40   # 3. Por mes cumplido
-PTS_MES_ANTERIOR  = 15   # 4. Por superar venta del mes anterior
-PTS_UR            = 15   # 6. UR: Prepago >= 55% de su cuota mensual
-UR_UMBRAL         = 0.55
+# 3. Semana >= 100% cuota semanal (pts fijos por semana cumplida)
+PTS_CUOTA_SEMANAL = {
+    "Prepago":   10,
+    "Porta Pre": 15,
+    "Postpago":  10,
+    "OSS":       15,
+}
+
+# 4. Mes >= 100% cuota mensual (pts fijos si cumple el mes)
+PTS_CUOTA_MENSUAL = {
+    "Prepago":   40,
+    "Porta Pre": 50,
+    "Postpago":  40,
+    "OSS":       50,
+}
+
+# 5. Semana > promedio semanal mes anterior (pts fijos por semana que supera)
+PTS_MES_ANTERIOR = {
+    "Prepago":   15,
+    "Porta Pre": 18,
+    "Postpago":  15,
+    "OSS":       18,
+}
+
+PTS_UR    = 15    # 6. UR: Prepago >= 55% de su cuota mensual
+UR_UMBRAL = 0.55
 
 # ============================================================================
 # FUNCIONES — SISTEMA BASE
@@ -412,6 +435,9 @@ def calcular_puntos_producto(df_mensual: pd.DataFrame, df_diario: pd.DataFrame) 
 
         pts_dia_u   = PTS_CUOTA_DIARIA.get(producto, 2)
         pts_extra_u = PTS_EXTRA_DIARIA.get(producto, 3)
+        pts_sem_u   = PTS_CUOTA_SEMANAL.get(producto, 10)
+        pts_mes_u   = PTS_CUOTA_MENSUAL.get(producto, 40)
+        pts_ant_u   = PTS_MES_ANTERIOR.get(producto, 15)
 
         # Cuota semanal = cuota mensual / nº semanas del mes
         cuota_sem    = cuota_m / _n_semanas if (_n_semanas > 0 and cuota_m > 0) else 0
@@ -428,13 +454,14 @@ def calcular_puntos_producto(df_mensual: pd.DataFrame, df_diario: pd.DataFrame) 
             if not grp_d.empty:
                 cd_col = grp_d["CuotaDiaria"] if "CuotaDiaria" in grp_d.columns else cuota_d
 
-                # 1. Cumple cuota diaria
+                # 1. Cumple cuota diaria: pts fijos por cada día que cumple (venta >= cuota)
                 dias_ok   = grp_d["Venta_Dia"] >= cd_col
                 pd_diario = int(dias_ok.sum()) * pts_dia_u
 
-                # 2. Supera cuota diaria (unidades extra, solo días cumplidos)
-                grp_d["_extra"] = (grp_d["Venta_Dia"] - cd_col).clip(lower=0)
-                pd_extra = int(grp_d.loc[dias_ok, "_extra"].sum()) * pts_extra_u
+                # 2. Supera cuota diaria: pts fijos por cada día que SUPERA (venta > cuota)
+                #    No se multiplica por unidades extra — es un bono fijo por día
+                dias_supera = grp_d["Venta_Dia"] > cd_col
+                pd_extra    = int(dias_supera.sum()) * pts_extra_u
 
                 # Agrupar por semana del mes: día 1-7=sem1, 8-14=sem2, etc.
                 grp_d["_semana"] = grp_d["Fecha"].dt.day.apply(lambda d: (d - 1) // 7 + 1)
@@ -443,15 +470,15 @@ def calcular_puntos_producto(df_mensual: pd.DataFrame, df_diario: pd.DataFrame) 
                 # 3. Semana >= 100% cuota semanal
                 if cuota_sem > 0:
                     semanas_ok = (ventas_sem >= cuota_sem).sum()
-                    pd_semanal = int(semanas_ok) * PTS_CUOTA_SEMANAL
+                    pd_semanal = int(semanas_ok) * pts_sem_u
 
                 # 5. Semana > promedio semanal del mes anterior
                 if prom_sem_ant > 0:
                     semanas_vs_ant = (ventas_sem > prom_sem_ant).sum()
-                    pd_mes_ant     = int(semanas_vs_ant) * PTS_MES_ANTERIOR
+                    pd_mes_ant     = int(semanas_vs_ant) * pts_ant_u
 
         # 4. Mes >= 100% cuota mensual
-        pd_mensual = PTS_CUOTA_MENSUAL if (cuota_m > 0 and venta_m >= cuota_m) else 0
+        pd_mensual = pts_mes_u if (cuota_m > 0 and venta_m >= cuota_m) else 0
 
         total = pd_diario + pd_extra + pd_semanal + pd_mensual + pd_mes_ant
 
@@ -889,7 +916,9 @@ def calcular_puntos_adicionales(df_diario: pd.DataFrame,
              ).reset_index())
     sem["Cumpl_Sem_%"] = (sem["Ventas_Sem"] /
                           sem["Cuota_Sem"].replace(0, 1) * 100).round(1)
-    sem["Pts_Sem"]     = (sem["Cumpl_Sem_%"] >= 100).astype(int) * PTS_CUOTA_SEMANAL
+    sem["Pts_Sem"]     = sem.apply(
+        lambda r: PTS_CUOTA_SEMANAL.get(r["Producto"], 10) if r["Cumpl_Sem_%"] >= 100 else 0,
+        axis=1)
 
     # ── Puntos vs semana equivalente del mes anterior ────────────────────────
     # Fuente 1: hoja Semanal_MesAnt → comparación semana exacta vs semana exacta
@@ -920,7 +949,9 @@ def calcular_puntos_adicionales(df_diario: pd.DataFrame,
     else:
         sem["Venta_Ant_Sem"] = 0.0
 
-    sem["Pts_vs_Ant"]    = (sem["Ventas_Sem"] > sem["Venta_Ant_Sem"]).astype(int) * PTS_MES_ANTERIOR
+    sem["Pts_vs_Ant"]    = sem.apply(
+        lambda r: PTS_MES_ANTERIOR.get(r["Producto"], 15) if r["Ventas_Sem"] > r["Venta_Ant_Sem"] else 0,
+        axis=1)
     sem["Pts_Total_Sem"] = sem["Pts_Dia"] + sem["Pts_Sem"] + sem["Pts_vs_Ant"]
     sem["Semaforo"]      = sem["Cumpl_Sem_%"].apply(
         lambda x: "🟢" if x >= 100 else ("🟡" if x >= 80 else "🔴"))
@@ -1765,7 +1796,8 @@ if st.session_state.get("es_admin"):
                         _dd["Extra_Uds"]   = _dd.apply(
                             lambda r: max(0, r["Venta_Dia"] - r["Cuota_Diaria"]) if r["Cumple"]=="Sí" else 0, axis=1)
                         _dd["Pts_Extra"]   = _dd.apply(
-                            lambda r: int(r["Extra_Uds"]) * _pts_ext_map.get(r["Producto"],3), axis=1)
+                            lambda r: _pts_ext_map.get(r["Producto"], 3) if r["Venta_Real"] > r["Cuota_Diaria"] else 0,
+                            axis=1)
                         _dd = _dd.rename(columns={"Venta_Dia":"Venta_Real"})
                         _cols_dd = ["Gestor","Departamento","Producto","Fecha",
                                     "Cuota_Diaria","Venta_Real","Cumpl_Dia%",
@@ -1795,8 +1827,9 @@ if st.session_state.get("es_admin"):
                             _sem_agg["Cuota_Semanal"].replace(0,float("nan"))*100).round(1).fillna(0)
                         _sem_agg["Cumple_100%"] = _sem_agg.apply(
                             lambda r: "Sí" if r["Venta_Semanal"]>=r["Cuota_Semanal"] else "No", axis=1)
-                        _sem_agg["Pts_Semana"] = _sem_agg["Cumple_100%"].apply(
-                            lambda x: PTS_CUOTA_SEMANAL if x=="Sí" else 0)
+                        _sem_agg["Pts_Semana"] = _sem_agg.apply(
+                            lambda r: PTS_CUOTA_SEMANAL.get(r["Producto"], 10) if r["Cumple_100%"]=="Sí" else 0,
+                            axis=1)
                         _sem_agg["Prom_Sem_MesAnt"] = _sem_agg.apply(
                             lambda r: round(_vant_map.get((r["Gestor"],r["Producto"]),0)/_n_sem_sb,1)
                             if _n_sem_sb>0 else 0, axis=1)
@@ -1804,8 +1837,9 @@ if st.session_state.get("es_admin"):
                             lambda r: "Sí" if (r["Prom_Sem_MesAnt"]>0 and
                                                r["Venta_Semanal"]>r["Prom_Sem_MesAnt"]) else "No",
                             axis=1)
-                        _sem_agg["Pts_Crecimiento"] = _sem_agg["Supera_Prom_Ant"].apply(
-                            lambda x: PTS_MES_ANTERIOR if x=="Sí" else 0)
+                        _sem_agg["Pts_Crecimiento"] = _sem_agg.apply(
+                            lambda r: PTS_MES_ANTERIOR.get(r["Producto"], 15) if r["Supera_Prom_Ant"]=="Sí" else 0,
+                            axis=1)
                         _sem_agg.sort_values(["Gestor","Producto","Semana"]).to_excel(
                             _wr_sb, sheet_name="Detalle Semanal", index=False)
 
