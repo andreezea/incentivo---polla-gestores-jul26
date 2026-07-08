@@ -408,7 +408,7 @@ def calcular_puntos_producto(df_mensual: pd.DataFrame, df_diario: pd.DataFrame) 
         cuota_m   = float(row["Cuota"])
         venta_m   = float(row["Venta"])
         venta_ant = float(row.get("VentaMesAnterior", 0) or 0)
-        cuota_d   = float(row.get("CuotaDiaria", cuota_m / 22) or cuota_m / 22)
+        cuota_d   = float(row.get("CuotaDiaria", cuota_m / _n_dias_mes) or cuota_m / _n_dias_mes)
 
         pts_dia_u   = PTS_CUOTA_DIARIA.get(producto, 2)
         pts_extra_u = PTS_EXTRA_DIARIA.get(producto, 3)
@@ -1467,27 +1467,61 @@ if not df_diario_sqlite.empty:
         df_diario = df_diario_sqlite
 
 # ── Cuota diaria dinámica: (Cuota − ventas acumuladas hasta ayer) / días hábiles restantes ──
+def calcular_cuota_diaria_historica(df_diario: pd.DataFrame,
+                                     df_raw: pd.DataFrame) -> pd.DataFrame:
+    """
+    Asigna a cada fila de df_diario su CuotaDiaria correcta según el día exacto:
+        CuotaDiaria_dia_N = (Cuota_mensual - ventas_acum_días_anteriores) / dias_restantes_del_mes
+    donde dias_restantes = dias_del_mes - dia_del_mes + 1  (días calendario)
+    Esto garantiza que día 1 = cuota/31, día 2 = (cuota-v1)/30, etc.
+    """
+    import calendar as _cal_hist
+    if df_diario.empty or df_raw.empty:
+        return df_diario
+    cuota_map = (df_raw.drop_duplicates(["Gestor", "Producto"])
+                 .set_index(["Gestor", "Producto"])["Cuota"].to_dict())
+    df = df_diario.copy()
+    df["Fecha"] = pd.to_datetime(df["Fecha"])
+    grupos = []
+    for (gestor, producto), grp in df.groupby(["Gestor", "Producto"]):
+        cuota_m = float(cuota_map.get((gestor, producto), 0))
+        grp     = grp.sort_values("Fecha").reset_index(drop=True)
+        acum    = 0.0
+        nuevas  = []
+        for _, row in grp.iterrows():
+            dia        = int(row["Fecha"].day)
+            n_dias_mes = _cal_hist.monthrange(int(row["Fecha"].year),
+                                              int(row["Fecha"].month))[1]
+            dias_rest   = max(1, n_dias_mes - dia + 1)
+            cuota_rest  = max(0.0, cuota_m - acum)
+            row         = row.copy()
+            row["CuotaDiaria"] = round(cuota_rest / dias_rest, 1)
+            nuevas.append(row)
+            acum += float(row["Venta_Dia"])
+        grupos.append(pd.DataFrame(nuevas))
+    if not grupos:
+        return df_diario
+    return pd.concat(grupos, ignore_index=True)
+
+
 def calcular_cuota_diaria_dinamica(df_mensual: pd.DataFrame,
                                    df_diario_: pd.DataFrame) -> pd.DataFrame:
     """
-    Reemplaza CuotaDiaria del Excel por el valor progresivo:
-        CuotaDiaria = (Cuota − Ventas acumuladas hasta ayer) / días hábiles restantes
-    Si faltan días (fin de mes o sin días restantes) usa 1 como mínimo.
+    Reemplaza CuotaDiaria del Excel (fila Mensual) por el valor de HOY:
+        CuotaDiaria = (Cuota − Ventas acumuladas hasta ayer) / días calendario restantes
+    Usa días calendario (no hábiles) para ser consistente con la división mensual.
     """
-    hoy       = date.today()
-    ayer      = hoy - timedelta(days=1)
-    fin_mes   = (date(hoy.year, hoy.month % 12 + 1, 1)
-                 if hoy.month < 12 else date(hoy.year, 12, 31))
+    import calendar as _cal_din
+    hoy     = date.today()
+    ayer    = hoy - timedelta(days=1)
     if hoy.month < 12:
         fin_mes = date(hoy.year, hoy.month + 1, 1) - timedelta(days=1)
     else:
         fin_mes = date(hoy.year, 12, 31)
 
-    dias_restantes = max(1, sum(
-        1 for d in pd.date_range(hoy, fin_mes) if d.weekday() < 5
-    ))
+    # Días calendario restantes incluyendo hoy
+    dias_restantes = max(1, (fin_mes - hoy).days + 1)
 
-    # Ventas acumuladas hasta ayer desde la hoja Diario
     if not df_diario_.empty and "Fecha" in df_diario_.columns:
         acum = (df_diario_[df_diario_["Fecha"] <= pd.Timestamp(ayer)]
                 .groupby(["Gestor", "Producto"])["Venta_Dia"]
@@ -1500,22 +1534,16 @@ def calcular_cuota_diaria_dinamica(df_mensual: pd.DataFrame,
     df_m = df_m.merge(acum, on=["Gestor", "Producto"], how="left")
     df_m["_Acum"]       = df_m["_Acum"].fillna(0)
     df_m["CuotaDiaria"] = ((df_m["Cuota"] - df_m["_Acum"]).clip(lower=0)
-                           / dias_restantes).round(0).astype(int)
+                           / dias_restantes).round(1)
     return df_m.drop(columns=["_Acum"])
 
 df_raw = calcular_cuota_diaria_dinamica(df_raw, df_diario)
 
-# ── Propagar CuotaDiaria de df_raw → df_diario (la hoja Diario no la trae) ──
-if not df_diario.empty and "CuotaDiaria" in df_raw.columns:
-    _cuota_map = (df_raw.drop_duplicates(["Gestor","Producto"])
-                        .set_index(["Gestor","Producto"])["CuotaDiaria"]
-                        .to_dict())
-    def _fill_cuota_diaria(r):
-        v = float(r.get("CuotaDiaria") or 0)
-        if v == 0:
-            v = float(_cuota_map.get((r["Gestor"], r["Producto"]), 0))
-        return v
-    df_diario["CuotaDiaria"] = df_diario.apply(_fill_cuota_diaria, axis=1)
+# ── CuotaDiaria histórica: día N = (cuota - acum_anterior) / días_restantes ──
+# Cada fila de df_diario recibe la cuota que correspondía ESE día exacto.
+# Día 1 = cuota/31, Día 2 = (cuota-v1)/30, etc.  (días calendario)
+if not df_diario.empty:
+    df_diario = calcular_cuota_diaria_historica(df_diario, df_raw)
 
 # ── Rellenar Venta mensual desde Diario cuando el Mensual trae NaN ───────────
 # El Excel usa fórmulas que a veces no se calculan → Venta queda NaN.
