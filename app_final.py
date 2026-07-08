@@ -2433,18 +2433,55 @@ with tab2:
                            margin=dict(t=20, b=10))
     st.plotly_chart(fig_prod, use_container_width=True)
 
-    subheader("🌡️ Mapa de Calor — Cumplimiento")
-    df_pa = (
-        df_f.groupby(["Gestor","Producto"])
-        .agg(Venta=("Venta","sum"), Cuota=("Cuota","sum"))
-        .reset_index()
-    )
-    df_pa["Cumplimiento_%"] = (df_pa["Venta"] / df_pa["Cuota"] * 100).round(1)
-    pivot_heat = df_pa.pivot(index="Gestor", columns="Producto", values="Cumplimiento_%").fillna(0)
-    cols_ok    = [p for p in PRODUCTOS_ORDEN if p in pivot_heat.columns]
-    fig_heat   = px.imshow(pivot_heat[cols_ok], text_auto=".0f",
-                            color_continuous_scale="RdYlGn", zmin=0, zmax=150, aspect="auto")
-    st.plotly_chart(fig_heat, use_container_width=True)
+    subheader("🌡️ Mapa de Calor")
+    _hc1, _hc2 = st.columns(2)
+
+    # ── Izquierda: Cumplimiento % por Gestor ─────────────────────────────────
+    with _hc1:
+        st.markdown(
+            "<div style='font-weight:700;font-size:13px;color:#0A2A5E;"
+            "margin-bottom:6px;text-align:center;'>Cumplimiento % por Gestor</div>",
+            unsafe_allow_html=True)
+        df_pa = (
+            df_f.groupby(["Gestor","Producto"])
+            .agg(Venta=("Venta","sum"), Cuota=("Cuota","sum"))
+            .reset_index()
+        )
+        df_pa["Cumplimiento_%"] = (df_pa["Venta"] / df_pa["Cuota"] * 100).round(1)
+        pivot_heat = df_pa.pivot(index="Gestor", columns="Producto",
+                                 values="Cumplimiento_%").fillna(0)
+        cols_ok = [p for p in PRODUCTOS_ORDEN if p in pivot_heat.columns]
+        fig_heat = px.imshow(
+            pivot_heat[cols_ok], text_auto=".0f",
+            color_continuous_scale="RdYlGn", zmin=0, zmax=150, aspect="auto",
+            labels=dict(x="Producto", y="Gestor", color="Cumpl%"))
+        fig_heat.update_layout(
+            margin=dict(t=10, b=10, l=10, r=80),
+            coloraxis_colorbar=dict(title="Cumpl%", ticksuffix="%"))
+        st.plotly_chart(fig_heat, use_container_width=True)
+
+    # ── Derecha: Ventas absolutas por Departamento ────────────────────────────
+    with _hc2:
+        st.markdown(
+            "<div style='font-weight:700;font-size:13px;color:#0A2A5E;"
+            "margin-bottom:6px;text-align:center;'>Ventas por Departamento</div>",
+            unsafe_allow_html=True)
+        df_dep = (
+            df_f.groupby(["Departamento","Producto"])
+            .agg(Venta=("Venta","sum"))
+            .reset_index()
+        )
+        pivot_dep = df_dep.pivot(index="Departamento", columns="Producto",
+                                 values="Venta").fillna(0)
+        cols_dep = [p for p in PRODUCTOS_ORDEN if p in pivot_dep.columns]
+        fig_dep = px.imshow(
+            pivot_dep[cols_dep], text_auto=".0f",
+            color_continuous_scale="Blues", aspect="auto",
+            labels=dict(x="Producto", y="Departamento", color="Ventas"))
+        fig_dep.update_layout(
+            margin=dict(t=10, b=10, l=10, r=80),
+            coloraxis_colorbar=dict(title="Ventas"))
+        st.plotly_chart(fig_dep, use_container_width=True)
 
     # ── Puntos Producto por gestor y producto ────────────────────────────────
     subheader("🆕 Puntos Motor por Gestor y Producto")
