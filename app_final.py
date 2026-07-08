@@ -2286,7 +2286,13 @@ with tab1:
         f"<thead>{_hdr}</thead><tbody>{_rows_html}</tbody>"
         f"</table></div></div>"
     )
-    st.markdown(_html_tbl, unsafe_allow_html=True)
+    import streamlit.components.v1 as _stc_top10
+    _ht_top10 = len(_top10) * 37 + 90
+    _stc_top10.html(
+        f"<html><head><style>body{{margin:0;padding:0;font-family:sans-serif;}}"
+        f"table{{width:100%;border-collapse:collapse;}}</style></head>"
+        f"<body>{_html_tbl}</body></html>",
+        height=_ht_top10, scrolling=False)
 
     st.markdown("<div style='margin-top:20px'></div>", unsafe_allow_html=True)
 
