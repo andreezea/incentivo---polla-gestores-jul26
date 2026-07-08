@@ -1223,6 +1223,7 @@ def db_a_diario(df_raw: pd.DataFrame) -> pd.DataFrame:
     Convierte registros CSV/session al formato de df_diario:
     Gestor, Departamento, Producto, Fecha (datetime), Venta_Dia, CuotaDiaria.
     Agrupa por Gestor+Producto+Fecha (suma del día).
+    Solo incluye registros del mes en curso para evitar contaminación histórica.
     """
     df = cargar_registros_db()
     if df.empty:
@@ -1245,6 +1246,10 @@ def db_a_diario(df_raw: pd.DataFrame) -> pd.DataFrame:
              .reset_index())
     agg.columns = ["Gestor","Departamento","Producto","Fecha","Venta_Dia","CuotaDiaria"]
     agg["Fecha"] = pd.to_datetime(agg["Fecha"])
+    # Filtrar solo registros del mes en curso (evita contaminación de meses anteriores)
+    _hoy_dba = date.today()
+    agg = agg[(agg["Fecha"].dt.year  == _hoy_dba.year) &
+              (agg["Fecha"].dt.month == _hoy_dba.month)]
     return agg
 
 # ============================================================================
@@ -1451,17 +1456,19 @@ if not df_diario.empty:
 df_diario_sqlite = db_a_diario(df_raw)
 if not df_diario_sqlite.empty:
     if not df_diario.empty:
-        # Claves que ya cubre el Excel
+        # Normalizar fechas a YYYY-MM-DD para evitar "2026-07-01 00:00:00" vs "2026-07-01"
         excel_keys = set(
             zip(df_diario["Gestor"].astype(str),
                 df_diario["Producto"].astype(str),
-                df_diario["Fecha"].astype(str))
+                pd.to_datetime(df_diario["Fecha"]).dt.strftime("%Y-%m-%d"))
         )
-        # Solo mantener filas SQLite que NO tienen registro en Excel
-        mask_nuevas = ~df_diario_sqlite.apply(
-            lambda r: (str(r["Gestor"]), str(r["Producto"]), str(r["Fecha"])) in excel_keys,
-            axis=1
-        )
+        def _sqlite_key(r):
+            try:
+                d = pd.Timestamp(r["Fecha"]).strftime("%Y-%m-%d")
+            except Exception:
+                d = str(r["Fecha"])[:10]
+            return (str(r["Gestor"]), str(r["Producto"]), d) in excel_keys
+        mask_nuevas = ~df_diario_sqlite.apply(_sqlite_key, axis=1)
         df_diario = pd.concat([df_diario, df_diario_sqlite[mask_nuevas]], ignore_index=True)
     else:
         df_diario = df_diario_sqlite
