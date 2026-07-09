@@ -446,12 +446,23 @@ def calcular_puntos_producto(df_mensual: pd.DataFrame,
                 except Exception:
                     pass
 
+    # Acumulado real de ventas desde df_diario (no usa el Excel que puede tener fórmulas cacheadas)
+    # Este valor se usa para PD_Mensual: solo se otorga si ventas REALES >= cuota mensual
+    _venta_real_map = {}
+    if not df_diario.empty and "Venta_Dia" in df_diario.columns:
+        _agg_real = df_diario.groupby(["Gestor","Producto"])["Venta_Dia"].sum()
+        _venta_real_map = _agg_real.to_dict()
+
     filas = []
 
     for (gestor, producto), grp_m in df_mensual.groupby(["Gestor", "Producto"]):
         row       = grp_m.iloc[0]
         cuota_m   = float(row["Cuota"])
         venta_m   = float(row["Venta"])
+        # Para PD_Mensual: usar acumulado real del diario; fallback al valor Excel si no hay diario
+        venta_m_real = float(_venta_real_map.get((gestor, producto), 0) or 0)
+        if venta_m_real == 0:
+            venta_m_real = venta_m  # fallback: Excel (puede ser fórmula)
         venta_ant = float(row.get("VentaMesAnterior", 0) or 0)
         cuota_d   = float(row.get("CuotaDiaria", cuota_m / _n_dias_mes) or cuota_m / _n_dias_mes)
 
@@ -511,8 +522,8 @@ def calcular_puntos_producto(df_mensual: pd.DataFrame,
                     semanas_vs_ant = (ventas_sem > prom_sem_ant).sum()
                     pd_mes_ant     = int(semanas_vs_ant) * pts_ant_u
 
-        # 4. Mes >= 100% cuota mensual
-        pd_mensual = pts_mes_u if (cuota_m > 0 and venta_m >= cuota_m) else 0
+        # 4. Mes >= 100% cuota mensual — usa ventas REALES acumuladas (no proyección del Excel)
+        pd_mensual = pts_mes_u if (cuota_m > 0 and venta_m_real >= cuota_m) else 0
 
         total = pd_diario + pd_extra + pd_semanal + pd_mensual + pd_mes_ant
 
@@ -2460,28 +2471,58 @@ with tab2:
             coloraxis_colorbar=dict(title="Cumpl%", ticksuffix="%"))
         st.plotly_chart(fig_heat, use_container_width=True)
 
-    # ── Derecha: Ventas absolutas por Departamento ────────────────────────────
+    # ── Derecha: Ventas absolutas por Gestor, ordenado por Departamento ─────
     with _hc2:
         st.markdown(
             "<div style='font-weight:700;font-size:13px;color:#0A2A5E;"
-            "margin-bottom:6px;text-align:center;'>Ventas por Departamento</div>",
+            "margin-bottom:6px;text-align:center;'>Ventas por Gestor (agrupado por Departamento)</div>",
             unsafe_allow_html=True)
-        df_dep = (
-            df_f.groupby(["Departamento","Producto"])
+        # Agrupar ventas por gestor × producto
+        df_gv = (
+            df_f.groupby(["Departamento","Gestor","Producto"])
             .agg(Venta=("Venta","sum"))
             .reset_index()
         )
-        pivot_dep = df_dep.pivot(index="Departamento", columns="Producto",
-                                 values="Venta").fillna(0)
-        cols_dep = [p for p in PRODUCTOS_ORDEN if p in pivot_dep.columns]
-        fig_dep = px.imshow(
-            pivot_dep[cols_dep], text_auto=".0f",
+        # Ordenar por Departamento luego Gestor para que queden agrupados
+        _orden_gest = (
+            df_gv[["Departamento","Gestor"]]
+            .drop_duplicates()
+            .sort_values(["Departamento","Gestor"])["Gestor"]
+            .tolist()
+        )
+        pivot_gv = df_gv.pivot_table(
+            index="Gestor", columns="Producto", values="Venta",
+            aggfunc="sum", fill_value=0
+        )
+        # Reordenar filas agrupadas por departamento
+        pivot_gv = pivot_gv.reindex([g for g in _orden_gest if g in pivot_gv.index])
+        cols_gv = [p for p in PRODUCTOS_ORDEN if p in pivot_gv.columns]
+        # Etiquetas del eje Y con departamento como prefijo (separador visual)
+        _dep_lookup = (
+            df_gv[["Gestor","Departamento"]]
+            .drop_duplicates()
+            .set_index("Gestor")["Departamento"]
+            .to_dict()
+        )
+        _ytick_labels = []
+        _prev_dep = None
+        for _g in pivot_gv.index:
+            _d = _dep_lookup.get(_g, "")
+            if _d != _prev_dep:
+                _ytick_labels.append(f"[{_d}] {_g}")
+                _prev_dep = _d
+            else:
+                _ytick_labels.append(f"  {_g}")
+        fig_gv = px.imshow(
+            pivot_gv[cols_gv], text_auto=".0f",
             color_continuous_scale="Blues", aspect="auto",
-            labels=dict(x="Producto", y="Departamento", color="Ventas"))
-        fig_dep.update_layout(
+            labels=dict(x="Producto", y="Gestor", color="Ventas"))
+        fig_gv.update_yaxes(ticktext=_ytick_labels, tickvals=list(range(len(pivot_gv))))
+        fig_gv.update_layout(
             margin=dict(t=10, b=10, l=10, r=80),
+            height=max(350, len(pivot_gv) * 22),
             coloraxis_colorbar=dict(title="Ventas"))
-        st.plotly_chart(fig_dep, use_container_width=True)
+        st.plotly_chart(fig_gv, use_container_width=True)
 
     # ── Puntos Producto por gestor y producto ────────────────────────────────
     subheader("🆕 Puntos Motor por Gestor y Producto")
