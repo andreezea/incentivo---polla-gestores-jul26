@@ -467,10 +467,10 @@ def calcular_puntos_producto(df_mensual: pd.DataFrame,
         row       = grp_m.iloc[0]
         cuota_m   = float(row["Cuota"])
         venta_m   = float(row["Venta"])
-        # Para PD_Mensual: usar acumulado real del diario; fallback al valor Excel si no hay diario
+        # Para PD_Mensual: SOLO acumulado real del diario (mes actual).
+        # No se usa el valor Excel como fallback porque puede ser una fórmula
+        # cacheada con proyección. Si no hay registros diarios, no se otorgan puntos.
         venta_m_real = float(_venta_real_map.get((gestor, producto), 0) or 0)
-        if venta_m_real == 0:
-            venta_m_real = venta_m  # fallback: Excel (puede ser fórmula)
         venta_ant = float(row.get("VentaMesAnterior", 0) or 0)
         cuota_d   = float(row.get("CuotaDiaria", cuota_m / _n_dias_mes) or cuota_m / _n_dias_mes)
 
