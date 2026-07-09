@@ -446,12 +446,20 @@ def calcular_puntos_producto(df_mensual: pd.DataFrame,
                 except Exception:
                     pass
 
-    # Acumulado real de ventas desde df_diario (no usa el Excel que puede tener fórmulas cacheadas)
-    # Este valor se usa para PD_Mensual: solo se otorga si ventas REALES >= cuota mensual
+    # Acumulado real de ventas desde df_diario — SOLO MES ACTUAL
+    # Filtramos por mes/año para evitar sumar datos históricos de meses anteriores.
+    # Solo se otorga PD_Mensual cuando ventas acumuladas del mes actual >= cuota mensual.
     _venta_real_map = {}
-    if not df_diario.empty and "Venta_Dia" in df_diario.columns:
-        _agg_real = df_diario.groupby(["Gestor","Producto"])["Venta_Dia"].sum()
-        _venta_real_map = _agg_real.to_dict()
+    if not df_diario.empty and "Venta_Dia" in df_diario.columns and "Fecha" in df_diario.columns:
+        _d_mes = df_diario.copy()
+        _d_mes["Fecha"] = pd.to_datetime(_d_mes["Fecha"], errors="coerce")
+        _d_mes = _d_mes[
+            (_d_mes["Fecha"].dt.year  == _hoy_pts.year) &
+            (_d_mes["Fecha"].dt.month == _hoy_pts.month)
+        ]
+        if not _d_mes.empty:
+            _agg_real = _d_mes.groupby(["Gestor","Producto"])["Venta_Dia"].sum()
+            _venta_real_map = _agg_real.to_dict()
 
     filas = []
 
