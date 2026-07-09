@@ -545,11 +545,15 @@ def calcular_puntos_producto(df_mensual: pd.DataFrame,
             "PD_MesAnt":       pd_mes_ant,
             "PD_UR":           0,
             "Puntos_Producto": total,
+            # Debug: valores usados para PD_Mensual
+            "_VentaRealAcum":  round(venta_m_real, 2),
+            "_CuotaMes":       round(cuota_m, 2),
         })
 
     if not filas:
         cols = ["Gestor","Producto","PD_Diario","PD_Extra","PD_Semanal",
-                "PD_Mensual","PD_MesAnt","PD_UR","Puntos_Producto"]
+                "PD_Mensual","PD_MesAnt","PD_UR","Puntos_Producto",
+                "_VentaRealAcum","_CuotaMes"]
         return pd.DataFrame(columns=cols)
 
     df_pts = pd.DataFrame(filas)
@@ -1647,15 +1651,25 @@ df = procesar(df_raw)
 df_pts_prod = calcular_puntos_producto(df_raw, df_diario, df_sem_ant)
 
 # ── Merge y actualizar Total_Puntos ──────────────────────────────────────────
-COLS_PROD = ["PD_Diario","PD_Extra","PD_Semanal","PD_Mensual","PD_MesAnt","PD_UR","Puntos_Producto"]
+COLS_PROD = ["PD_Diario","PD_Extra","PD_Semanal","PD_Mensual","PD_MesAnt","PD_UR","Puntos_Producto",
+             "_VentaRealAcum","_CuotaMes"]
 if not df_pts_prod.empty:
-    df = df.merge(df_pts_prod[["Gestor","Producto"] + COLS_PROD],
+    _merge_cols = [c for c in ["Gestor","Producto"] + COLS_PROD if c in df_pts_prod.columns]
+    df = df.merge(df_pts_prod[_merge_cols],
                   on=["Gestor","Producto"], how="left")
 else:
     for c in COLS_PROD:
         df[c] = 0
 
-df[COLS_PROD] = df[COLS_PROD].fillna(0).astype(int)
+# Columnas de puntos enteros; columnas debug como float
+_COLS_INT   = ["PD_Diario","PD_Extra","PD_Semanal","PD_Mensual","PD_MesAnt","PD_UR","Puntos_Producto"]
+_COLS_FLOAT = ["_VentaRealAcum","_CuotaMes"]
+for c in _COLS_INT:
+    if c in df.columns:
+        df[c] = df[c].fillna(0).astype(int)
+for c in _COLS_FLOAT:
+    if c in df.columns:
+        df[c] = df[c].fillna(0).astype(float)
 
 # ── Acelerador PDV: multiplica Puntos_Producto de Prepago ────────────────────
 _pdv_map_global = cargar_pdv_map()
@@ -2534,13 +2548,19 @@ with tab2:
 
     # ── Puntos Producto por gestor y producto ────────────────────────────────
     subheader("🆕 Puntos Motor por Gestor y Producto")
-    df_motor = df_f.groupby(["Gestor","Producto"]).agg(
+    _agg_dict = dict(
         PD_Diario=("PD_Diario","sum"), PD_Extra=("PD_Extra","sum"),
         PD_Semanal=("PD_Semanal","sum"), PD_Mensual=("PD_Mensual","sum"),
         PD_MesAnt=("PD_MesAnt","sum"), PD_UR=("PD_UR","sum"),
-        Puntos_Producto=("Puntos_Producto","sum")
-    ).reset_index()
+        Puntos_Producto=("Puntos_Producto","sum"),
+    )
+    if "_VentaRealAcum" in df_f.columns:
+        _agg_dict["VentaRealAcum_Jul"] = ("_VentaRealAcum", "sum")
+    if "_CuotaMes" in df_f.columns:
+        _agg_dict["CuotaMes"]          = ("_CuotaMes", "sum")
+    df_motor = df_f.groupby(["Gestor","Producto"]).agg(**_agg_dict).reset_index()
     st.dataframe(df_motor, use_container_width=True, hide_index=True)
+    st.caption("🔍 VentaRealAcum_Jul = suma Diario julio (usada para PD_Mensual) · CuotaMes = cuota mensual del Excel")
 
 # ============================================================================
 # TAB 3 — SEGUIMIENTO DIARIO
