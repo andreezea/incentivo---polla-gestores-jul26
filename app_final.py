@@ -491,10 +491,20 @@ def calcular_puntos_producto(df_mensual: pd.DataFrame,
 
         pd_diario = pd_extra = pd_semanal = pd_mes_ant = 0
 
-        # ── Datos diarios ────────────────────────────────────────────────────
+        # ── Datos diarios — SOLO mes actual ──────────────────────────────────
+        # IMPORTANTE: filtrar al mes actual para que PD_Diario, PD_Extra y
+        # PD_Semanal sean consistentes con PD_Mensual (que ya filtra por mes).
+        # Sin este filtro, si df_diario tiene datos de meses anteriores, los
+        # puntos diarios se inflarian contando todos los meses históricos.
         if not df_diario.empty and "Gestor" in df_diario.columns:
             mask  = (df_diario["Gestor"] == gestor) & (df_diario["Producto"] == producto)
             grp_d = df_diario[mask].copy()
+            # Filtrar al mes actual (Fecha ya es datetime desde calcular_cuota_diaria_historica)
+            if "Fecha" in grp_d.columns and not grp_d.empty:
+                grp_d = grp_d[
+                    (grp_d["Fecha"].dt.year  == _hoy_pts.year) &
+                    (grp_d["Fecha"].dt.month == _hoy_pts.month)
+                ]
 
             if not grp_d.empty:
                 cd_col = grp_d["CuotaDiaria"] if "CuotaDiaria" in grp_d.columns else cuota_d
