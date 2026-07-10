@@ -509,14 +509,23 @@ def calcular_puntos_producto(df_mensual: pd.DataFrame,
             if not grp_d.empty:
                 cd_col = grp_d["CuotaDiaria"] if "CuotaDiaria" in grp_d.columns else cuota_d
 
-                # 1. Cumple cuota diaria: pts fijos por cada día que cumple (venta >= cuota)
-                dias_ok   = grp_d["Venta_Dia"] >= cd_col
-                pd_diario = int(dias_ok.sum()) * pts_dia_u
+                # Regla: si el gestor YA llegó al 100% de su cuota mensual,
+                # no se otorgan puntos diarios ni extras (ya cumplió su meta).
+                # Si aún no llega al 100%, se otorgan normalmente.
+                _ya_cumplio_mes = (cuota_m > 0 and venta_m_real >= cuota_m)
 
-                # 2. Supera cuota diaria: pts fijos por cada día que SUPERA (venta > cuota)
-                #    No se multiplica por unidades extra — es un bono fijo por día
-                dias_supera = grp_d["Venta_Dia"] > cd_col
-                pd_extra    = int(dias_supera.sum()) * pts_extra_u
+                if _ya_cumplio_mes:
+                    # Ya alcanzó el 100% mensual → sin puntos diarios ni extras
+                    pd_diario = 0
+                    pd_extra  = 0
+                else:
+                    # 1. Cumple cuota diaria: pts fijos por cada día que cumple (venta >= cuota)
+                    dias_ok   = grp_d["Venta_Dia"] >= cd_col
+                    pd_diario = int(dias_ok.sum()) * pts_dia_u
+
+                    # 2. Supera cuota diaria: pts fijos por cada día que SUPERA (venta > cuota)
+                    dias_supera = grp_d["Venta_Dia"] > cd_col
+                    pd_extra    = int(dias_supera.sum()) * pts_extra_u
 
                 # Agrupar por semana del mes: día 1-7=sem1, 8-14=sem2, etc.
                 grp_d["_semana"] = grp_d["Fecha"].dt.day.apply(lambda d: (d - 1) // 7 + 1)
@@ -540,8 +549,9 @@ def calcular_puntos_producto(df_mensual: pd.DataFrame,
                     semanas_vs_ant = (ventas_sem > prom_sem_ant).sum()
                     pd_mes_ant     = int(semanas_vs_ant) * pts_ant_u
 
-        # 4. Mes >= 100% cuota mensual — usa ventas REALES acumuladas (no proyección del Excel)
-        pd_mensual = pts_mes_u if (cuota_m > 0 and venta_m_real >= cuota_m) else 0
+        # 4. Mes >= 100% cuota mensual — DESHABILITADO por solicitud del cliente.
+        #    No se otorga bonus por llegar al 100% del mes.
+        pd_mensual = 0
 
         total = pd_diario + pd_extra + pd_semanal + pd_mensual + pd_mes_ant
 
