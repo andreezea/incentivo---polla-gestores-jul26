@@ -504,7 +504,7 @@ def calcular_puntos_producto(df_mensual: pd.DataFrame,
                 grp_d = grp_d[
                     (grp_d["Fecha"].dt.year  == _hoy_pts.year) &
                     (grp_d["Fecha"].dt.month == _hoy_pts.month)
-                ]
+                ].copy()  # .copy() evita ChainedAssignmentError en pandas 2.x
 
             if not grp_d.empty:
                 cd_col = grp_d["CuotaDiaria"] if "CuotaDiaria" in grp_d.columns else cuota_d
