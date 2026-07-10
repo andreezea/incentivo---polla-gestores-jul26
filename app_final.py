@@ -2761,7 +2761,7 @@ with tab3:
         # Tabla día a día: cuota vs venta
         if not df_dia_agg.empty:
             _tbl = df_dia_agg.copy()
-            _tbl["Fecha"] = _tbl["Fecha"].astype(str).str[:10]
+            
             _cols = [c for c in ["Fecha","Venta_Dia","CuotaDiaria","Cumpl_Dia_%"] if c in _tbl.columns]
             st.dataframe(
                 _tbl[_cols].rename(columns={
