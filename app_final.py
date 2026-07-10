@@ -2758,6 +2758,17 @@ with tab3:
             margin=dict(t=20, b=10)
         )
         st.plotly_chart(fig_bar, use_container_width=True)
+        # Tabla día a día: cuota vs venta
+        if not df_dia_agg.empty:
+            _tbl = df_dia_agg.copy()
+            _tbl["Fecha"] = _tbl["Fecha"].dt.strftime("%d/%m")
+            _cols = [c for c in ["Fecha","Venta_Dia","CuotaDiaria","Cumpl_Dia_%"] if c in _tbl.columns]
+            st.dataframe(
+                _tbl[_cols].rename(columns={
+                    "Venta_Dia":"Venta","CuotaDiaria":"Cuota","Cumpl_Dia_%":"Cumpl%"
+                }).reset_index(drop=True),
+                use_container_width=True, hide_index=True
+            )
 
     # ── Resumen Semanal ──────────────────────────────────────────────────────
     st.markdown("<div style='margin-top:8px'></div>", unsafe_allow_html=True)
