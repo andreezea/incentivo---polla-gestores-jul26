@@ -1124,7 +1124,7 @@ def _gh_put_file(path: str, content_str: str, message: str):
 
 # ── Excel ↔ GitHub (persistencia permanente del archivo de datos) ─────────────
 GITHUB_EXCEL_PATH = "datos_incentivos.xlsx"
-
+@st.cache_data
 def cargar_excel_desde_github() -> bytes | None:
     """Descarga el Excel de datos desde GitHub. Retorna bytes o None."""
     import requests, base64 as _b64
