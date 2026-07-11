@@ -2759,7 +2759,7 @@ with tab3:
         )
         st.plotly_chart(fig_bar, use_container_width=True)
         # Tabla dia a dia
-        st.write(df_dia_agg[["Fecha","Venta_Dia","CuotaDiaria"]].rename(columns={"Venta_Dia":"Venta","CuotaDiaria":"Cuota"}))
+        # st.write(df_dia_agg[["Fecha","Venta_Dia","CuotaDiaria"]].rename(columns={"Venta_Dia":"Venta","CuotaDiaria":"Cuota"}))
 
     # ── Resumen Semanal ──────────────────────────────────────────────────────
     st.markdown("<div style='margin-top:8px'></div>", unsafe_allow_html=True)
