@@ -580,8 +580,11 @@ def calcular_puntos_producto(df_mensual: pd.DataFrame,
     df_pts = pd.DataFrame(filas)
 
     # 6. UR Prepago: cumplimiento >= 55 %
-    prepago_m = df_mensual[df_mensual["Producto"] == "Prepago"][["Gestor","Cuota","Venta"]].copy()
-    prepago_m["_cumpl_pre"] = (prepago_m["Venta"] /
+    # Usa _VentaExcelOriginal para que UR sea 0 hasta que el admin llene la columna Excel
+    _ur_col = "_VentaExcelOriginal" if "_VentaExcelOriginal" in df_mensual.columns else "Venta"
+    prepago_m = df_mensual[df_mensual["Producto"] == "Prepago"][["Gestor","Cuota", _ur_col]].copy()
+    prepago_m.rename(columns={_ur_col: "_VentaUR"}, inplace=True)
+    prepago_m["_cumpl_pre"] = (prepago_m["_VentaUR"] /
                                 prepago_m["Cuota"].replace(0, float("nan")))
     ur_map = (
         prepago_m.set_index("Gestor")["_cumpl_pre"]
@@ -1635,6 +1638,8 @@ df_raw = calcular_cuota_diaria_dinamica(df_raw, df_diario)
 # Día 1 = cuota/31, Día 2 = (cuota-v1)/30, etc.  (días calendario)
 if not df_diario.empty:
     df_diario = calcular_cuota_diaria_historica(df_diario, df_raw)
+# Guardar Venta original del Excel (para UR — no debe usar el sum del Diario)
+df_raw["_VentaExcelOriginal"] = df_raw["Venta"].copy()
 
 # ── Rellenar Venta mensual desde Diario cuando el Mensual trae NaN ───────────
 # El Excel usa fórmulas que a veces no se calculan → Venta queda NaN.
@@ -1858,6 +1863,10 @@ if st.session_state.get("es_admin"):
                             lambda r: _pts_dia_map.get(r["Producto"],2) if r["Cumple"]=="Sí" else 0, axis=1)
                         _dd["Extra_Uds"]   = _dd.apply(
                             lambda r: max(0, r["Venta_Dia"] - r["Cuota_Diaria"]) if r["Cumple"]=="Sí" else 0, axis=1)
+                        _dd = _dd.rename(columns={"Venta_Dia":"Venta_Real"})
+                        _dd["Pts_Extra"]   = _dd.apply(
+                            lambda r: _pts_ext_map.get(r["Producto"], 3) if r["Venta_Real"] > r["Cuota_Diaria"] else 0,
+                            axis=1)
                         _dd["Pts_Extra"]   = _dd.apply(
                             lambda r: _pts_ext_map.get(r["Producto"], 3) if r["Venta_Real"] > r["Cuota_Diaria"] else 0,
                             axis=1)
