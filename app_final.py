@@ -1867,9 +1867,6 @@ if st.session_state.get("es_admin"):
                         _dd["Pts_Extra"]   = _dd.apply(
                             lambda r: _pts_ext_map.get(r["Producto"], 3) if r["Venta_Real"] > r["Cuota_Diaria"] else 0,
                             axis=1)
-                        _dd["Pts_Extra"]   = _dd.apply(
-                            lambda r: _pts_ext_map.get(r["Producto"], 3) if r["Venta_Real"] > r["Cuota_Diaria"] else 0,
-                            axis=1)
                         _dd = _dd.rename(columns={"Venta_Dia":"Venta_Real"})
                         _cols_dd = ["Gestor","Departamento","Producto","Fecha",
                                     "Cuota_Diaria","Venta_Real","Cumpl_Dia%",
