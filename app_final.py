@@ -620,7 +620,7 @@ def build_pivot(df_src, index_col):
     for p in PRODUCTOS_ORDEN:
         result[(p,"Cuota")]  = p_cuota[p].fillna(0).astype(int)
         result[(p,"Ventas")] = p_venta[p].fillna(0).astype(int)
-       result[(p,"Cumpl%")] = p_cumpl[p].fillna(0).replace([float("inf"), float("-inf")], 0).astype(int)
+        result[(p,"Cumpl%")] = p_cumpl[p].fillna(0).replace([float("inf"), float("-inf")], 0).astype(int)
 
     return result
 
